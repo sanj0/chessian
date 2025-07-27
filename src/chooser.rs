@@ -15,24 +15,6 @@ pub struct ChooserResult {
     pub reached_depth: usize,
     pub millis: u128,
 }
-// Transposition table entry
-#[derive(Clone, Copy)]
-enum NodeType {
-    Exact,
-    LowerBound,
-    UpperBound,
-}
-#[derive(Clone, Copy)]
-struct TTEntry {
-    score: i32,
-    depth: usize,
-    node_type: NodeType,
-}
-
-// A simple hash map to store the transposition table
-struct TranspositionTable {
-    table: HashMap<u64, TTEntry>, // A HashMap that maps board hash to the TTEntry
-}
 
 pub fn best_move(board: &Board, start_depth: usize, millis: u128) -> Option<ChooserResult> {
     let mut candidates: Vec<_> = MoveGen::new_legal(board).collect();
@@ -43,7 +25,6 @@ pub fn best_move(board: &Board, start_depth: usize, millis: u128) -> Option<Choo
     let mut best_move = None;
     let mut best_alpha = -INF;
     let cutoff_millis = millis / 2;
-    let mut tt = TranspositionTable::new();
 
     sort_moves(&mut candidates, board);
 
@@ -56,7 +37,7 @@ pub fn best_move(board: &Board, start_depth: usize, millis: u128) -> Option<Choo
         print!("\ndepth {depth}");
         for (i, m) in candidates.iter().enumerate() {
             let after_move = board.make_move_new(*m);
-            let Some(its_alpha) = negamax(&after_move, depth - 1, -INF, -alpha, &millis, &t0, i > 2*num_candidates/3, &mut tt).map(|i| -i) else {
+            let Some(its_alpha) = negamax(&after_move, depth - 1, -INF, -alpha, &millis, &t0, i > 2*num_candidates/3).map(|i| -i) else {
                 println!("\nout of time!");
                 break 'outer;
             };
@@ -88,27 +69,15 @@ pub fn best_move(board: &Board, start_depth: usize, millis: u128) -> Option<Choo
         best_alpha = alpha;
     }
     if let Some(m) = best_move {
-        println!("chose {m} at depth {depth} (tt size: {})\n", tt.table.len());
+        println!("chose {m} at depth {depth}\n");
     }
     best_move.map(|m| ChooserResult::new(m, best_alpha, depth - 1, t0.elapsed().as_millis()))
 }
 
 // None if ran out of time
-fn negamax(board: &Board, depth: usize, mut alpha: i32, mut beta: i32, millis: &u128, t0: &Instant, ignore_time: bool, tt: &mut TranspositionTable) -> Option<i32> {
+fn negamax(board: &Board, depth: usize, mut alpha: i32, beta: i32, millis: &u128, t0: &Instant, ignore_time: bool) -> Option<i32> {
     if !ignore_time && t0.elapsed().as_millis() >= *millis {
         return None;
-    }
-
-    let hash = board.get_hash();
-    if let Some(entry) = tt.probe(hash) {
-        // If the entry is deeper than the current search depth, return it
-        if entry.depth >= depth {
-            match entry.node_type {
-                NodeType::Exact => return Some(entry.score),
-                NodeType::LowerBound => if entry.score > alpha { alpha = entry.score },
-                NodeType::UpperBound => if entry.score < beta { beta = entry.score },
-            }
-        }
     }
     if depth == 0 {
         return Some(if board.side_to_move() == Color::White {
@@ -132,28 +101,13 @@ fn negamax(board: &Board, depth: usize, mut alpha: i32, mut beta: i32, millis: &
             }
         }
         BoardStatus::Ongoing => {
-            let mut best_score = -INF;
             for m in MoveGen::new_legal(board) {
                 let after_move = board.make_move_new(m);
-                let score = i32::max(alpha, -negamax(&after_move, depth - 1, -beta, -alpha, millis, t0, ignore_time, tt)?);
-                best_score = i32::max(best_score, score);
-                alpha = i32::max(alpha, best_score);
+                alpha = i32::max(alpha, -negamax(&after_move, depth - 1, -beta, -alpha, millis, t0, ignore_time)?);
                 if alpha >= beta {
                     break;
                 }
             }
-            let node_type = if best_score <= alpha {
-                NodeType::UpperBound
-            } else if best_score >= beta {
-                NodeType::LowerBound
-            } else {
-                NodeType::Exact
-            };
-            tt.store(hash, TTEntry {
-                score: best_score,
-                depth,
-                node_type,
-            });
             alpha
         }
     })
@@ -161,6 +115,10 @@ fn negamax(board: &Board, depth: usize, mut alpha: i32, mut beta: i32, millis: &
 
 fn is_quiet(m: &ChessMove, board: &Board) -> bool {
     get_capture(m, board).is_none()
+}
+
+fn get_piece(m: &ChessMove, board: &Board) -> Piece {
+    board.piece_on(m.get_source()).unwrap()
 }
 
 fn get_capture(m: &ChessMove, board: &Board) -> Option<Piece> {
@@ -177,9 +135,10 @@ fn get_move_prio(m: &ChessMove, before: &Board) -> i32 {
     if before.make_move_new(*m).checkers().0 != 0 {
         PIECE_VALUES[5] * 10 - PIECE_VALUES[before.piece_on(m.get_source()).unwrap().to_index()]
     } else {
-        get_capture(m, before)
+        let pos_score = SQUARE_SCORES[before.side_to_move().to_index()][get_piece(m, before).to_index()][m.get_dest().to_index()];
+        pos_score + get_capture(m, before)
             .map(|p| PIECE_VALUES[p.to_index()])
-            .unwrap_or(-PIECE_VALUES[5])
+            .unwrap_or(-1000)
     }
 }
 
@@ -195,21 +154,5 @@ impl ChooserResult {
             reached_depth,
             millis,
         }
-    }
-}
-
-impl TranspositionTable {
-    fn new() -> Self {
-        TranspositionTable {
-            table: HashMap::new(),
-        }
-    }
-
-    fn probe(&mut self, board_hash: u64) -> Option<TTEntry> {
-        self.table.get(&board_hash).copied()
-    }
-
-    fn store(&mut self, board_hash: u64, entry: TTEntry) {
-        self.table.insert(board_hash, entry);
     }
 }
