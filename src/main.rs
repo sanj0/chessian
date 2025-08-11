@@ -45,7 +45,8 @@ async fn main() -> Result<(), String> {
         };
         match game_state.board().status() {
             BoardStatus::Ongoing => {
-                let Some(result) = chessian::chooser::best_move(game_state.board(), millis, &[], true)
+                let Some(result) =
+                    chessian::chooser::best_move(game_state.board(), millis, &[], true)
                 else {
                     return Err(String::from("error"));
                 };
@@ -126,7 +127,17 @@ async fn main() -> Result<(), String> {
                 if ui.button(None, "GO, GO, GO!") {
                     engine_move_next_frame = true;
                 }
-                ui.label(None, &format!("Don't play: {}", game_state.excluded_moves().iter().map(|m| format!("{},", m.to_string())).collect::<String>()));
+                ui.label(
+                    None,
+                    &format!(
+                        "Don't play: {}",
+                        game_state
+                            .excluded_moves()
+                            .iter()
+                            .map(|m| format!("{},", m.to_string()))
+                            .collect::<String>()
+                    ),
+                );
                 if ui.button(None, "< undo") {
                     game_state.undo_move();
                 }
@@ -188,22 +199,53 @@ async fn main() -> Result<(), String> {
         }
 
         if let Some(r) = predicted_response {
-            let (x0, y0) = square_to_xy(if invert { invert_square(r.get_source()) } else { r.get_source() });
-            let (x1, y1) = square_to_xy(if invert { invert_square(r.get_dest()) } else { r.get_dest() });
-            draw_line(x0 + FIELD_SIZE / 2.0, y0 + FIELD_SIZE / 2.0, x1 + FIELD_SIZE / 2.0, y1 + FIELD_SIZE / 2.0, 5.0, COLOR_RED);
+            let (x0, y0) = square_to_xy(if invert {
+                invert_square(r.get_source())
+            } else {
+                r.get_source()
+            });
+            let (x1, y1) = square_to_xy(if invert {
+                invert_square(r.get_dest())
+            } else {
+                r.get_dest()
+            });
+            draw_line(
+                x0 + FIELD_SIZE / 2.0,
+                y0 + FIELD_SIZE / 2.0,
+                x1 + FIELD_SIZE / 2.0,
+                y1 + FIELD_SIZE / 2.0,
+                5.0,
+                COLOR_RED,
+            );
         }
-
 
         if let Some(pending_promotion) = pending_promotion_move {
             let dest = pending_promotion.get_dest();
-            let to_inner_board = if dest.get_rank() == Rank::First { Square::up } else { Square::down };
+            let to_inner_board = if dest.get_rank() == Rank::First {
+                Square::up
+            } else {
+                Square::down
+            };
             let queen_sq = to_inner_board(&dest).unwrap();
             let rook_sq = to_inner_board(&queen_sq).unwrap();
             let bishop_sq = to_inner_board(&rook_sq).unwrap();
             let knight_sq = to_inner_board(&bishop_sq).unwrap();
-            for (square, piece) in [queen_sq, rook_sq, bishop_sq, knight_sq].iter().zip([Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight].iter()) {
-                let (x, y) = square_to_xy(if invert { invert_square(*square) } else { *square });
-                draw_piece(*piece, game_state.board().side_to_move(), x, y, &piece_sprites);
+            for (square, piece) in [queen_sq, rook_sq, bishop_sq, knight_sq]
+                .iter()
+                .zip([Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight].iter())
+            {
+                let (x, y) = square_to_xy(if invert {
+                    invert_square(*square)
+                } else {
+                    *square
+                });
+                draw_piece(
+                    *piece,
+                    game_state.board().side_to_move(),
+                    x,
+                    y,
+                    &piece_sprites,
+                );
             }
             if is_mouse_button_pressed(MouseButton::Left) {
                 let clicked_promotion = if hovered_square == queen_sq {
@@ -218,7 +260,11 @@ async fn main() -> Result<(), String> {
                     None
                 };
                 if let Some(promotion) = clicked_promotion {
-                    game_state.make_move(ChessMove::new(pending_promotion.get_source(), dest, Some(promotion)));
+                    game_state.make_move(ChessMove::new(
+                        pending_promotion.get_source(),
+                        dest,
+                        Some(promotion),
+                    ));
                     game_state.excluded_moves().clear();
                 }
                 pending_promotion_move = None;
@@ -268,7 +314,6 @@ async fn main() -> Result<(), String> {
             next_frame().await;
             continue;
         }
-
 
         // Draw highlighted moves
         for m in &highlight_moves {
@@ -348,7 +393,6 @@ async fn main() -> Result<(), String> {
                 otherwise => (),
             }
         }
-
 
         next_frame().await
     }
