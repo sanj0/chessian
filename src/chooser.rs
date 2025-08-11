@@ -17,7 +17,7 @@ pub struct ChooserResult {
     pub millis: u128,
 }
 
-pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove]) -> Option<ChooserResult> {
+pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet: bool) -> Option<ChooserResult> {
     let mut candidates: Vec<_> = MoveGen::new_legal(board).filter(|m| !exclude_moves.contains(m)).collect();
     let num_candidates = candidates.len();
     if num_candidates == 1 {
@@ -37,7 +37,7 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove]) -> Op
         let mut curr_best_move = None;
         let mut curr_response = None;
         let mut curr_best_move_index = 0;
-        print!("\ndepth {depth}");
+        if !quiet { print!("\ndepth {depth}"); }
         for (i, m) in candidates.iter().enumerate() {
             let after_move = board.make_move_new(*m);
             let (alpha_opt, response_opt) = negamax(
@@ -50,9 +50,8 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove]) -> Op
                 i > 2 * num_candidates / 3,
             );
             let Some(its_alpha) = alpha_opt.map(|i| -i) else {
-                println!("\nout of time!");
+                if !quiet { println!("\nout of time!"); }
                 if alpha > best_alpha && best_move != curr_best_move {
-                    println!("but found a better move still!");
                     best_move = curr_best_move;
                     response = response_opt;
                     best_alpha = alpha;
@@ -71,19 +70,19 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove]) -> Op
                 alpha = its_alpha;
             }
             if alpha >= MATE_SCORE {
-                println!("!!! MATE AT DEPTH {} !!!", depth);
+                if !quiet { println!("!!! MATE AT DEPTH {} !!!", depth); }
                 best_move = curr_best_move;
                 response = response_opt;
                 best_alpha = alpha;
                 break 'outer;
             }
         }
-        println!(
+        if !quiet { println!(
             "\nbest move position: {} / {num_candidates}",
             curr_best_move_index + 1
-        );
+        ); }
         if alpha <= -MATE_SCORE {
-            println!("!!! WE LOSE IN MATE IN {} !!!", depth);
+            if !quiet { println!("!!! WE LOSE IN MATE IN {} !!!", depth); }
             break;
         }
         depth += 2;
@@ -96,7 +95,7 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove]) -> Op
         best_alpha = alpha;
     }
     if let Some(m) = best_move {
-        println!("chose {m} at depth {depth}\n");
+        if !quiet { println!("chose {m} at depth {depth}\n"); }
     }
     best_move.map(|m| ChooserResult::new(m, response, best_alpha, depth - 2, t0.elapsed().as_millis()))
 }
