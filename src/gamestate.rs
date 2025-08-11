@@ -54,7 +54,7 @@ impl GameState {
     }
 
     pub fn engine_move(&mut self, millis: u128) -> Option<ChooserResult> {
-        if let Some(result) = best_move(&self.board, millis, &self.exclude_moves, false) {
+        if let Some(result) = best_move(&self.board, millis, false, &self.exclude_moves, false) {
             self.make_move(result.best_move);
             self.last_engine_move = Some(result.best_move);
             if let Some(r) = result.response {
