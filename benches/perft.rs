@@ -1,8 +1,8 @@
+use criterion::{Criterion, criterion_group, criterion_main};
 use std::hint::black_box;
-use criterion::{criterion_group, criterion_main, Criterion};
 
-use chessian::eval::eval;
 use chess::*;
+use chessian::eval::eval;
 
 fn perft(board: Board, depth: usize) -> usize {
     black_box(eval(&board));
@@ -28,7 +28,6 @@ fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("perft 4", |b| b.iter(|| perft(black_box(board.clone()), 4)));
     c.bench_function("perft 5", |b| b.iter(|| perft(black_box(board.clone()), 5)));
 }
-
 
 criterion_group!(benches, criterion_benchmark);
 criterion_main!(benches);

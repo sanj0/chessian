@@ -12,8 +12,8 @@ use macroquad::ui::*;
 use gamestate::GameState;
 use graphics::Textures;
 
-use chessian::*;
 use chessian::eval::*;
+use chessian::*;
 
 pub const FIELD_SIZE: f32 = 100.0;
 pub const COLOR_WHITE: Color = Color::from_hex(0xFFFFF2);
@@ -45,10 +45,14 @@ async fn main() -> Result<(), String> {
         };
         match game_state.board().status() {
             BoardStatus::Ongoing => {
-                let Some(result) = chessian::chooser::best_move(game_state.board(), 1, millis) else {
+                let Some(result) = chessian::chooser::best_move(game_state.board(), millis, &[])
+                else {
                     return Err(String::from("error"));
                 };
-                println!("{}", board_to_fen(&game_state.board().make_move_new(result.best_move)));
+                println!(
+                    "{}",
+                    board_to_fen(&game_state.board().make_move_new(result.best_move))
+                );
             }
             BoardStatus::Stalemate => println!("stalemate"),
             BoardStatus::Checkmate => println!("lost"),
@@ -68,154 +72,11 @@ async fn main() -> Result<(), String> {
     let mut thinking_millis = 5_000;
     let mut invert = false;
     let mut total_time = 0;
+    let mut message = "-";
+    let mut pending_promotion_move: Option<ChessMove> = None;
+    let mut predicted_response: Option<ChessMove> = None;
 
     loop {
-        clear_background(BLACK);
-
-        let hovered_square = hovered_square(invert);
-
-        for mut y in 0..=7 {
-            for mut x in 0..=7 {
-                let square = Square::make_square(
-                    Rank::from_index(if invert { y } else { 7 - y }),
-                    File::from_index(if invert { 7 - x } else { x }),
-                );
-                let x_pos = x as f32 * FIELD_SIZE;
-                let y_pos = y as f32 * FIELD_SIZE;
-                let (color, opp_color) = if (x + y) % 2 == 0 {
-                    (COLOR_WHITE, COLOR_BLACK)
-                } else {
-                    (COLOR_BLACK, COLOR_WHITE)
-                };
-                // Draw field
-                draw_rectangle(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, color);
-                if square == hovered_square {
-                    draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_BLUE);
-                }
-                // Draw piece?
-                if draw_pieces {
-                    if let Some((piece, color)) = game_state
-                        .board()
-                        .piece_on(square)
-                        .zip(game_state.board().color_on(square))
-                    {
-                        draw_piece(piece, color, x_pos, y_pos, &piece_sprites);
-                    }
-                }
-
-                if draw_square_names {
-                    draw_text(
-                        &square.to_string(),
-                        x_pos,
-                        y_pos + FIELD_SIZE,
-                        20.0,
-                        opp_color,
-                    );
-                }
-
-                if let Some(m) = game_state.last_move() {
-                    if m.get_source() == square || m.get_dest() == square {
-                        draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_RED);
-                    }
-                }
-            }
-        }
-
-        if engine_move_next_frame {
-            draw_rectangle(
-                0.0,
-                0.0,
-                screen_width(),
-                screen_height(),
-                Color::new(0.0, 0.0, 0.0, 0.75),
-            );
-            draw_text_centered("Engine calculates ...", 35.0, COLOR_BLUE);
-            next_frame().await;
-            if let Some(result) = game_state.engine_move(thinking_millis) {
-                last_alpha = Some(result.deep_eval);
-                last_depth = Some(result.reached_depth);
-                last_millis = Some(result.millis);
-                total_time += result.millis;
-                println!("{:.2}s total time thinking", total_time as f64 / 1000.0);
-            }
-            engine_move_next_frame = false;
-            highlight_moves.clear();
-            continue;
-        }
-
-        // Draw highlighted moves
-        for m in &highlight_moves {
-            let dest = m.get_dest();
-            let (x, y) = square_to_xy(if invert { invert_square(dest) } else { dest });
-            draw_circle(
-                x + FIELD_SIZE / 2.,
-                y + FIELD_SIZE / 2.,
-                MOVE_INDICATOR_SIZE,
-                COLOR_MOVES,
-            );
-        }
-
-        // Process input
-        if is_mouse_button_down(MouseButton::Left) {
-            if matches![
-                hovered_piece(game_state.board(), invert),
-                Some((_, color)) if color == game_state.board().side_to_move()]
-            {
-                highlight_moves = game_state.legal_moves_from(hovered_square);
-            } else {
-                if let Some(m) = highlight_moves
-                    .iter()
-                    .find(|m| m.get_dest() == hovered_square)
-                {
-                    let mut mov = *m;
-                    if mov.get_promotion().is_some() {
-                        mov = ChessMove::new(
-                            mov.get_source(),
-                            mov.get_dest(),
-                            Some(choose_promotion()),
-                        );
-                    }
-                    game_state.make_move(mov);
-                    engine_move_next_frame = auto_respond;
-                }
-                highlight_moves.clear();
-            }
-        }
-
-        if let Some(c) = get_char_pressed() {
-            let control_down = if cfg!(target_os = "macos") {
-                is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper)
-            } else {
-                is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
-            };
-            match c {
-                'a' => auto_respond = !auto_respond,
-                'f' => println!("{}", chessian::board_to_fen(game_state.board())),
-                'm' => {
-                    engine_move_next_frame = true;
-                    highlight_moves.clear();
-                }
-                'z' if control_down => {
-                    if game_state.undo_move() {
-                        highlight_moves.clear();
-                    }
-                }
-                'y' if control_down => {
-                    if game_state.redo_move() {
-                        highlight_moves.clear();
-                    }
-                }
-                's' => draw_square_names = !draw_square_names,
-                'p' => draw_pieces = !draw_pieces,
-                'i' => invert = !invert,
-                'r' => {
-                    game_state = GameState::default();
-                    total_time = 0;
-                }
-                otherwise => (),
-            }
-        }
-
         root_ui().window(
             hash!(),
             Vec2::new(FIELD_SIZE * 8.0, 0.0),
@@ -228,6 +89,7 @@ async fn main() -> Result<(), String> {
                 } else {
                     ui.label(None, &format!("Last alpha: None"));
                 }
+                ui.label(None, &format!("Your move: {message}"));
                 if let Some(depth) = last_depth {
                     ui.label(None, &format!("Last depth: {}", depth));
                 } else {
@@ -261,6 +123,10 @@ async fn main() -> Result<(), String> {
                     seconds = 10.0;
                 }
                 thinking_millis = (seconds * 1000.0) as u128;
+                if ui.button(None, "GO, GO, GO!") {
+                    engine_move_next_frame = true;
+                }
+                ui.label(None, &format!("Don't play: {}", game_state.excluded_moves().iter().map(|m| format!("{},", m.to_string())).collect::<String>()));
                 if ui.button(None, "< undo") {
                     game_state.undo_move();
                 }
@@ -270,6 +136,219 @@ async fn main() -> Result<(), String> {
                 }
             },
         );
+
+        let hovered_square = hovered_square(invert);
+        let mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
+
+        for mut y in 0..=7 {
+            for mut x in 0..=7 {
+                let square = Square::make_square(
+                    Rank::from_index(if invert { y } else { 7 - y }),
+                    File::from_index(if invert { 7 - x } else { x }),
+                );
+                let x_pos = x as f32 * FIELD_SIZE;
+                let y_pos = y as f32 * FIELD_SIZE;
+                let (color, opp_color) = if (x + y) % 2 == 0 {
+                    (COLOR_WHITE, COLOR_BLACK)
+                } else {
+                    (COLOR_BLACK, COLOR_WHITE)
+                };
+                // Draw field
+                draw_rectangle(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, color);
+                if square == hovered_square && mouse_in_board {
+                    draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_BLUE);
+                }
+                // Draw piece?
+                if draw_pieces {
+                    if let Some((piece, color)) = game_state
+                        .board()
+                        .piece_on(square)
+                        .zip(game_state.board().color_on(square))
+                    {
+                        draw_piece(piece, color, x_pos, y_pos, &piece_sprites);
+                    }
+                }
+
+                if draw_square_names {
+                    draw_text(
+                        &square.to_string(),
+                        x_pos,
+                        y_pos + FIELD_SIZE,
+                        20.0,
+                        opp_color,
+                    );
+                }
+
+                if let Some(m) = game_state.last_move() {
+                    if m.get_source() == square || m.get_dest() == square {
+                        draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_RED);
+                    }
+                }
+            }
+        }
+
+        if let Some(r) = predicted_response {
+            let (x0, y0) = square_to_xy(if invert { invert_square(r.get_source()) } else { r.get_source() });
+            let (x1, y1) = square_to_xy(if invert { invert_square(r.get_dest()) } else { r.get_dest() });
+            draw_line(x0 + FIELD_SIZE / 2.0, y0 + FIELD_SIZE / 2.0, x1 + FIELD_SIZE / 2.0, y1 + FIELD_SIZE / 2.0, 5.0, COLOR_RED);
+        }
+
+
+        if let Some(pending_promotion) = pending_promotion_move {
+            let dest = pending_promotion.get_dest();
+            let to_inner_board = if dest.get_rank() == Rank::First { Square::up } else { Square::down };
+            let queen_sq = to_inner_board(&dest).unwrap();
+            let rook_sq = to_inner_board(&queen_sq).unwrap();
+            let bishop_sq = to_inner_board(&rook_sq).unwrap();
+            let knight_sq = to_inner_board(&bishop_sq).unwrap();
+            for (square, piece) in [queen_sq, rook_sq, bishop_sq, knight_sq].iter().zip([Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight].iter()) {
+                let (x, y) = square_to_xy(if invert { invert_square(*square) } else { *square });
+                draw_piece(*piece, game_state.board().side_to_move(), x, y, &piece_sprites);
+            }
+            if is_mouse_button_pressed(MouseButton::Left) {
+                let clicked_promotion = if hovered_square == queen_sq {
+                    Some(Piece::Queen)
+                } else if hovered_square == rook_sq {
+                    Some(Piece::Rook)
+                } else if hovered_square == bishop_sq {
+                    Some(Piece::Bishop)
+                } else if hovered_square == knight_sq {
+                    Some(Piece::Knight)
+                } else {
+                    None
+                };
+                if let Some(promotion) = clicked_promotion {
+                    game_state.make_move(ChessMove::new(pending_promotion.get_source(), dest, Some(promotion)));
+                    game_state.excluded_moves().clear();
+                }
+                pending_promotion_move = None;
+            }
+        }
+
+        if engine_move_next_frame {
+            draw_rectangle(
+                0.0,
+                0.0,
+                screen_width(),
+                screen_height(),
+                Color::new(0.0, 0.0, 0.0, 0.75),
+            );
+            draw_text_centered("Engine calculates ...", 35.0, COLOR_BLUE);
+            next_frame().await;
+            if let Some(result) = game_state.engine_move(thinking_millis) {
+                if let Some(last_alpha) = last_alpha {
+                    let diff = result.deep_eval - last_alpha;
+                    if diff > 500 {
+                        message = "BLUNDER!";
+                    } else if diff > 200 {
+                        message = "Blunder!";
+                    } else if diff > 100 {
+                        message = "Mistake!";
+                    } else if diff > 0 {
+                        message = "Inaccuracy!";
+                    } else if diff > -50 {
+                        message = "Good!";
+                    } else {
+                        message = "Perfect!";
+                    }
+                }
+                last_alpha = Some(result.deep_eval);
+                last_depth = Some(result.reached_depth);
+                last_millis = Some(result.millis);
+                total_time += result.millis;
+                predicted_response = result.response;
+                println!("{:.2}s total time thinking", total_time as f64 / 1000.0);
+            }
+            engine_move_next_frame = false;
+            highlight_moves.clear();
+            continue;
+        }
+
+        if !mouse_in_board {
+            next_frame().await;
+            continue;
+        }
+
+
+        // Draw highlighted moves
+        for m in &highlight_moves {
+            let dest = m.get_dest();
+            let (x, y) = square_to_xy(if invert { invert_square(dest) } else { dest });
+            draw_circle(
+                x + FIELD_SIZE / 2.,
+                y + FIELD_SIZE / 2.,
+                MOVE_INDICATOR_SIZE,
+                COLOR_MOVES,
+            );
+        }
+
+        // Process input
+        if is_mouse_button_pressed(MouseButton::Left) {
+            if matches![
+                hovered_piece(game_state.board(), invert),
+                Some((_, color)) if color == game_state.board().side_to_move()]
+            {
+                highlight_moves = game_state.legal_moves_from(hovered_square);
+            } else {
+                if let Some(m) = highlight_moves
+                    .iter()
+                    .find(|m| m.get_dest() == hovered_square)
+                {
+                    let mut mov = *m;
+                    if mov.get_promotion().is_some() {
+                        pending_promotion_move = Some(mov);
+                    } else {
+                        game_state.make_move(mov);
+                        game_state.excluded_moves().clear();
+                        engine_move_next_frame = auto_respond;
+                    }
+                }
+                highlight_moves.clear();
+            }
+        }
+
+        if let Some(c) = get_char_pressed() {
+            let control_down = if cfg!(target_os = "macos") {
+                is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper)
+            } else {
+                is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
+            };
+            match c {
+                'a' => auto_respond = !auto_respond,
+                'f' => println!("{}", chessian::board_to_fen(game_state.board())),
+                'm' => {
+                    engine_move_next_frame = true;
+                    game_state.excluded_moves().clear();
+                    highlight_moves.clear();
+                }
+                'd' => {
+                    if let Some(m) = game_state.last_engine_move() {
+                        game_state.excluded_moves().push(m);
+                        game_state.undo_move();
+                        engine_move_next_frame = true;
+                    }
+                }
+                'z' if control_down => {
+                    if game_state.undo_move() {
+                        highlight_moves.clear();
+                    }
+                }
+                'y' if control_down => {
+                    if game_state.redo_move() {
+                        highlight_moves.clear();
+                    }
+                }
+                's' => draw_square_names = !draw_square_names,
+                'p' => draw_pieces = !draw_pieces,
+                'i' => invert = !invert,
+                'r' => {
+                    game_state = GameState::default();
+                    total_time = 0;
+                }
+                otherwise => (),
+            }
+        }
+
 
         next_frame().await
     }

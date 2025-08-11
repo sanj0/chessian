@@ -7,6 +7,8 @@ use crate::chooser::*;
 pub struct GameState {
     board: Board,
     legal_moves: Vec<ChessMove>,
+    exclude_moves: Vec<ChessMove>,
+    last_engine_move: Option<ChessMove>,
     undo_queue: Vec<(Board, ChessMove)>,
     redo_queue: Vec<(Board, ChessMove)>,
     last_move: Option<ChessMove>,
@@ -17,6 +19,8 @@ impl GameState {
         Self {
             board,
             legal_moves: MoveGen::new_legal(&board).collect(),
+            exclude_moves: Vec::new(),
+            last_engine_move: None,
             undo_queue: Vec::new(),
             redo_queue: Vec::new(),
             last_move: None,
@@ -50,12 +54,24 @@ impl GameState {
     }
 
     pub fn engine_move(&mut self, millis: u128) -> Option<ChooserResult> {
-        if let Some(result) = best_move(&self.board, 4, millis) {
+        if let Some(result) = best_move(&self.board, millis, &self.exclude_moves) {
             self.make_move(result.best_move);
+            self.last_engine_move = Some(result.best_move);
+            if let Some(r) = result.response {
+                println!("I'm predicting {r}");
+            }
             Some(result)
         } else {
             None
         }
+    }
+
+    pub fn excluded_moves(&mut self) -> &mut Vec<ChessMove> {
+        &mut self.exclude_moves
+    }
+
+    pub fn last_engine_move(&mut self) -> Option<ChessMove> {
+        self.last_engine_move
     }
 
     pub fn undo_move(&mut self) -> bool {

@@ -51,6 +51,15 @@ pub fn eval(board: &Board) -> i32 {
             } else {
                 piece_values![$op, $bb_col, $bb_pieces, $color_index, 0]
             }
+        };
+        (kings: $op:tt, $bb_col:expr, $bb_pieces:expr, $color_index:literal) => {
+            if is_endgame {
+                for i in BitBoardIter::new($bb_col & $bb_pieces) {
+                    result $op ENDGAME_KING_SCORES[$color_index][i];
+                }
+            } else {
+                piece_values![$op, $bb_col, $bb_pieces, $color_index, 5]
+            }
         }
     }
 
@@ -59,14 +68,14 @@ pub fn eval(board: &Board) -> i32 {
     piece_values![+=, white_pieces, bishops, 0, 2];
     piece_values![+=, white_pieces, rooks, 0, 3];
     piece_values![+=, white_pieces, queens, 0, 4];
-    piece_values![+=, white_pieces, kings, 0, 5];
+    piece_values![kings: +=, white_pieces, kings, 0];
 
     piece_values![pawns: -=, black_pieces, pawns, 1];
     piece_values![-=, black_pieces, knights, 1, 1];
     piece_values![-=, black_pieces, bishops, 1, 2];
     piece_values![-=, black_pieces, rooks, 1, 3];
     piece_values![-=, black_pieces, queens, 1, 4];
-    piece_values![-=, black_pieces, kings, 1, 5];
+    piece_values![kings: -=, black_pieces, kings, 1];
 
     // sanction double pawns
     let white_pawns = white_pieces & pawns;
@@ -239,11 +248,24 @@ pub const ENDGAME_PAWN_SCORES: [[i32; 64]; 2] = [
     ],
 ];
 
+pub const ENDGAME_KING_SCORES: [[i32; 64]; 2] = [
+    [
+        -50, -40, -30, -20, -20, -30, -40, -50, -30, -20, -10, 0, 0, -10, -20, -30, -30, -10, 20,
+        30, 30, 20, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30, -30, -10, 30, 40, 40, 30, -10,
+        -30, -30, -10, 20, 30, 30, 20, -10, -30, -30, -30, 0, 0, 0, 0, -30, -30, -50, -30, -30,
+        -30, -30, -30, -30, -50,
+    ],
+    [
+        -50, -30, -30, -30, -30, -30, -30, -50, -30, -30, 0, 0, 0, 0, -30, -30, -30, -10, 20, 30,
+        30, 20, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30, -30, -10, 30, 40, 40, 30, -10, -30,
+        -30, -10, 20, 30, 30, 20, -10, -30, -30, -20, -10, 0, 0, -10, -20, -30, -50, -40, -30, -20,
+        -20, -30, -40, -50,
+    ],
+];
+
 impl BitBoardIter {
     pub fn new(bb: BitBoard) -> Self {
-        Self {
-            bb,
-        }
+        Self { bb }
     }
 }
 

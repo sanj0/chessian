@@ -9,7 +9,8 @@ pub fn board_to_fen(board: &Board) -> String {
     let mut fen = String::new();
 
     // 1. Convert the board's piece positions to the FEN piece placement part
-    for rank in ALL_RANKS.into_iter().rev() { // Start from rank 8 to 1
+    for rank in ALL_RANKS.into_iter().rev() {
+        // Start from rank 8 to 1
         let mut empty_count = 0;
         for file in ALL_FILES {
             let square = Square::make_square(rank, file);
@@ -44,7 +45,11 @@ pub fn board_to_fen(board: &Board) -> String {
     }
 
     // 2. Add the active color (White or Black)
-    let active_color = if board.side_to_move() == Color::White { "w" } else { "b" };
+    let active_color = if board.side_to_move() == Color::White {
+        "w"
+    } else {
+        "b"
+    };
     fen.push_str(&format!(" {active_color} "));
 
     let mut any_castle = false;
@@ -88,5 +93,5 @@ pub fn board_to_fen(board: &Board) -> String {
 fn main() {
     let board = Board::default();
     let fen = board_to_fen(&board);
-    println!("{}", fen);  // Prints the FEN of the default starting position
+    println!("{}", fen); // Prints the FEN of the default starting position
 }
