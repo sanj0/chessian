@@ -17,8 +17,15 @@ pub struct ChooserResult {
     pub millis: u128,
 }
 
-pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet: bool) -> Option<ChooserResult> {
-    let mut candidates: Vec<_> = MoveGen::new_legal(board).filter(|m| !exclude_moves.contains(m)).collect();
+pub fn best_move(
+    board: &Board,
+    millis: u128,
+    exclude_moves: &[ChessMove],
+    quiet: bool,
+) -> Option<ChooserResult> {
+    let mut candidates: Vec<_> = MoveGen::new_legal(board)
+        .filter(|m| !exclude_moves.contains(m))
+        .collect();
     let num_candidates = candidates.len();
     if num_candidates == 1 {
         return Some(ChooserResult::new(candidates[0], None, -1, 0, 0));
@@ -37,7 +44,9 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet
         let mut curr_best_move = None;
         let mut curr_response = None;
         let mut curr_best_move_index = 0;
-        if !quiet { print!("\ndepth {depth}"); }
+        if !quiet {
+            print!("\ndepth {depth}");
+        }
         for (i, m) in candidates.iter().enumerate() {
             let after_move = board.make_move_new(*m);
             let (alpha_opt, response_opt) = negamax(
@@ -50,7 +59,9 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet
                 i > 2 * num_candidates / 3,
             );
             let Some(its_alpha) = alpha_opt.map(|i| -i) else {
-                if !quiet { println!("\nout of time!"); }
+                if !quiet {
+                    println!("\nout of time!");
+                }
                 if alpha > best_alpha && best_move != curr_best_move {
                     best_move = curr_best_move;
                     response = response_opt;
@@ -58,10 +69,12 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet
                 }
                 break 'outer;
             };
-            print!(
-                "\r{:.2} % depth {depth}",
-                (i + 1) as f32 / num_candidates as f32 * 100.0
-            );
+            if !quiet {
+                print!(
+                    "\r{:.2} % depth {depth}",
+                    (i + 1) as f32 / num_candidates as f32 * 100.0
+                );
+            }
             let _ = io::stdout().flush();
             if its_alpha > alpha {
                 curr_best_move = Some(*m);
@@ -70,19 +83,25 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet
                 alpha = its_alpha;
             }
             if alpha >= MATE_SCORE {
-                if !quiet { println!("!!! MATE AT DEPTH {} !!!", depth); }
+                if !quiet {
+                    println!("!!! MATE AT DEPTH {} !!!", depth);
+                }
                 best_move = curr_best_move;
                 response = response_opt;
                 best_alpha = alpha;
                 break 'outer;
             }
         }
-        if !quiet { println!(
-            "\nbest move position: {} / {num_candidates}",
-            curr_best_move_index + 1
-        ); }
+        if !quiet {
+            println!(
+                "\nbest move position: {} / {num_candidates}",
+                curr_best_move_index + 1
+            );
+        }
         if alpha <= -MATE_SCORE {
-            if !quiet { println!("!!! WE LOSE IN MATE IN {} !!!", depth); }
+            if !quiet {
+                println!("!!! WE LOSE IN MATE IN {} !!!", depth);
+            }
             break;
         }
         depth += 2;
@@ -95,9 +114,12 @@ pub fn best_move(board: &Board, millis: u128, exclude_moves: &[ChessMove], quiet
         best_alpha = alpha;
     }
     if let Some(m) = best_move {
-        if !quiet { println!("chose {m} at depth {depth}\n"); }
+        if !quiet {
+            println!("chose {m} at depth {depth}\n");
+        }
     }
-    best_move.map(|m| ChooserResult::new(m, response, best_alpha, depth - 2, t0.elapsed().as_millis()))
+    best_move
+        .map(|m| ChooserResult::new(m, response, best_alpha, depth - 2, t0.elapsed().as_millis()))
 }
 
 // None if ran out of time
@@ -111,11 +133,14 @@ fn negamax(
     ignore_time: bool,
 ) -> (Option<i32>, Option<ChessMove>) {
     if depth == 0 {
-        return (Some(if board.side_to_move() == Color::White {
-            eval(board)
-        } else {
-            -eval(board)
-        }), None);
+        return (
+            Some(if board.side_to_move() == Color::White {
+                eval(board)
+            } else {
+                -eval(board)
+            }),
+            None,
+        );
     }
     if !ignore_time && t0.elapsed().as_millis() >= *millis {
         return (None, None);
@@ -128,11 +153,14 @@ fn negamax(
             } else {
                 -eval(board)
             };
-            (Some(if eval < -(PIECE_VALUES[2]) {
-                -(MATE_SCORE / 2)
-            } else {
-                MATE_SCORE / 2
-            }), None)
+            (
+                Some(if eval < -(PIECE_VALUES[2]) {
+                    -(MATE_SCORE / 2)
+                } else {
+                    MATE_SCORE / 2
+                }),
+                None,
+            )
         }
         BoardStatus::Ongoing => {
             let mut moves = MoveGen::new_legal(board).collect::<Vec<_>>();
@@ -143,13 +171,13 @@ fn negamax(
             for m in moves {
                 let after_move = board.make_move_new(m);
                 let value = negamax(
-                        &after_move,
-                        depth - 1,
-                        -beta,
-                        -alpha,
-                        millis,
-                        t0,
-                        ignore_time,
+                    &after_move,
+                    depth - 1,
+                    -beta,
+                    -alpha,
+                    millis,
+                    t0,
+                    ignore_time,
                 );
                 let Some(mut value) = value.0 else {
                     return (None, None);
@@ -208,7 +236,13 @@ fn sort_moves(moves: &mut [ChessMove], context: &Board) {
 }
 
 impl ChooserResult {
-    pub fn new(best_move: ChessMove, response: Option<ChessMove>, deep_eval: i32, reached_depth: usize, millis: u128) -> Self {
+    pub fn new(
+        best_move: ChessMove,
+        response: Option<ChessMove>,
+        deep_eval: i32,
+        reached_depth: usize,
+        millis: u128,
+    ) -> Self {
         Self {
             best_move,
             response,
