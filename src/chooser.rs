@@ -20,6 +20,7 @@ pub struct ChooserResult {
 pub fn best_move(
     board: &Board,
     millis: u128,
+    exact_time: bool,
     exclude_moves: &[ChessMove],
     quiet: bool,
 ) -> Option<ChooserResult> {
@@ -56,7 +57,7 @@ pub fn best_move(
                 -alpha,
                 &millis,
                 &t0,
-                i > 2 * num_candidates / 3,
+                !exact_time && (i > 2 * num_candidates / 3),
             );
             let Some(its_alpha) = alpha_opt.map(|i| -i) else {
                 if !quiet {

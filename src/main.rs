@@ -46,7 +46,7 @@ async fn main() -> Result<(), String> {
         match game_state.board().status() {
             BoardStatus::Ongoing => {
                 let Some(result) =
-                    chessian::chooser::best_move(game_state.board(), millis, &[], true)
+                    chessian::chooser::best_move(game_state.board(), millis, true, &[], true)
                 else {
                     return Err(String::from("error"));
                 };
