@@ -103,6 +103,8 @@ pub fn best_move(
             writeln!(log, "!!! WE LOSE IN MATE IN {} !!!", depth);
             break;
         }
+        let time = t0.elapsed().as_millis();
+        writeln!(uci_sink, "info depth {depth} seldepth {depth} scope cp {alpha} time {time}");
         depth += 2;
         if curr_best_move.is_some() {
             let m = candidates.remove(curr_best_move_index);
@@ -111,7 +113,7 @@ pub fn best_move(
         best_move = curr_best_move;
         response = curr_response;
         best_alpha = alpha;
-        if time_control.should_stop(t0.elapsed().as_millis(), depth - 2) {
+        if time_control.should_stop(time, depth - 2) {
             break;
         }
     }
