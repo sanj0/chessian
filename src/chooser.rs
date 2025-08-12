@@ -1,5 +1,6 @@
 use std::collections::HashMap;
-use std::io::{self, Write};
+use std::io::{self, Write, BufWriter};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use std::time::Instant;
 
 use chess::*;
@@ -8,6 +9,15 @@ use crate::eval::*;
 
 pub const MATE_SCORE: i32 = 30_000;
 pub const INF: i32 = MATE_SCORE * 2;
+
+#[derive(Clone, Debug)]
+pub enum TimeControl {
+    MoveTime(u128),
+    Depth(usize),
+    Infinite {
+        stop_flag: Arc<AtomicBool>,
+    },
+}
 
 pub struct ChooserResult {
     pub best_move: ChessMove,
@@ -19,10 +29,10 @@ pub struct ChooserResult {
 
 pub fn best_move(
     board: &Board,
-    millis: u128,
-    exact_time: bool,
+    time_control: TimeControl,
     exclude_moves: &[ChessMove],
-    quiet: bool,
+    mut uci_sink: impl Write,
+    mut log: impl Write,
 ) -> Option<ChooserResult> {
     let mut candidates: Vec<_> = MoveGen::new_legal(board)
         .filter(|m| !exclude_moves.contains(m))
@@ -34,7 +44,6 @@ pub fn best_move(
     let mut best_move = None;
     let mut best_alpha = -INF;
     let mut response = None;
-    let cutoff_millis = millis / 2;
 
     sort_moves(&mut candidates, board);
 
@@ -45,9 +54,7 @@ pub fn best_move(
         let mut curr_best_move = None;
         let mut curr_response = None;
         let mut curr_best_move_index = 0;
-        if !quiet {
-            print!("\ndepth {depth}");
-        }
+        write!(log, "\ndepth {depth}");
         for (i, m) in candidates.iter().enumerate() {
             let after_move = board.make_move_new(*m);
             let (alpha_opt, response_opt) = negamax(
@@ -55,14 +62,11 @@ pub fn best_move(
                 depth,
                 -INF,
                 -alpha,
-                &millis,
+                &time_control,
                 &t0,
-                !exact_time && (i > 2 * num_candidates / 3),
             );
             let Some(its_alpha) = alpha_opt.map(|i| -i) else {
-                if !quiet {
-                    println!("\nout of time!");
-                }
+                write!(log, "\nout of time!");
                 if alpha > best_alpha && best_move != curr_best_move {
                     best_move = curr_best_move;
                     response = response_opt;
@@ -70,12 +74,11 @@ pub fn best_move(
                 }
                 break 'outer;
             };
-            if !quiet {
-                print!(
-                    "\r{:.2} % depth {depth}",
-                    (i + 1) as f32 / num_candidates as f32 * 100.0
-                );
-            }
+            write!(
+                log,
+                "\r{:.2} % depth {depth}",
+                (i + 1) as f32 / num_candidates as f32 * 100.0
+            );
             let _ = io::stdout().flush();
             if its_alpha > alpha {
                 curr_best_move = Some(*m);
@@ -84,25 +87,20 @@ pub fn best_move(
                 alpha = its_alpha;
             }
             if alpha >= MATE_SCORE {
-                if !quiet {
-                    println!("!!! MATE AT DEPTH {} !!!", depth);
-                }
+                writeln!(log, "!!! MATE AT DEPTH {} !!!", depth);
                 best_move = curr_best_move;
                 response = response_opt;
                 best_alpha = alpha;
                 break 'outer;
             }
         }
-        if !quiet {
-            println!(
-                "\nbest move position: {} / {num_candidates}",
-                curr_best_move_index + 1
-            );
-        }
+        writeln!(
+            log,
+            "\nbest move position: {} / {num_candidates}",
+            curr_best_move_index + 1
+        );
         if alpha <= -MATE_SCORE {
-            if !quiet {
-                println!("!!! WE LOSE IN MATE IN {} !!!", depth);
-            }
+            writeln!(log, "!!! WE LOSE IN MATE IN {} !!!", depth);
             break;
         }
         depth += 2;
@@ -113,11 +111,12 @@ pub fn best_move(
         best_move = curr_best_move;
         response = curr_response;
         best_alpha = alpha;
+        if time_control.should_stop(t0.elapsed().as_millis(), depth - 2) {
+            break;
+        }
     }
     if let Some(m) = best_move {
-        if !quiet {
-            println!("chose {m} at depth {depth}\n");
-        }
+        writeln!(log, "chose {m} at depth {depth}\n");
     }
     best_move
         .map(|m| ChooserResult::new(m, response, best_alpha, depth - 2, t0.elapsed().as_millis()))
@@ -129,9 +128,8 @@ fn negamax(
     depth: usize,
     mut alpha: i32,
     beta: i32,
-    millis: &u128,
+    time_control: &TimeControl,
     t0: &Instant,
-    ignore_time: bool,
 ) -> (Option<i32>, Option<ChessMove>) {
     if depth == 0 {
         return (
@@ -143,7 +141,8 @@ fn negamax(
             None,
         );
     }
-    if !ignore_time && t0.elapsed().as_millis() >= *millis {
+    // Claim 0 depth because depth stopping only happens in the root search
+    if time_control.should_stop(t0.elapsed().as_millis(), 0) {
         return (None, None);
     }
     match board.status() {
@@ -176,9 +175,8 @@ fn negamax(
                     depth - 1,
                     -beta,
                     -alpha,
-                    millis,
+                    time_control,
                     t0,
-                    ignore_time,
                 );
                 let Some(mut value) = value.0 else {
                     return (None, None);
@@ -234,6 +232,22 @@ fn get_move_prio(m: &ChessMove, before: &Board) -> i32 {
 
 fn sort_moves(moves: &mut [ChessMove], context: &Board) {
     moves.sort_by(|a, b| get_move_prio(b, context).cmp(&get_move_prio(a, context)));
+}
+
+impl TimeControl {
+    pub fn game_time(base: u128, increment: u128, left: u128) -> Self {
+        Self::MoveTime(u128::min(base / 20 + increment / 2, left))
+    }
+
+    pub fn should_stop(&self, elapsed: u128, reached_depth: usize) -> bool {
+        match self {
+            Self::MoveTime(millis) => elapsed >= *millis,
+            Self::Depth(depth) => reached_depth >= *depth,
+            Self::Infinite {
+                stop_flag,
+            } => stop_flag.load(Ordering::Relaxed),
+        }
+    }
 }
 
 impl ChooserResult {

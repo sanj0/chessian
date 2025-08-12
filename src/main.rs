@@ -1,5 +1,5 @@
 use std::env::args;
-use std::io::{self, Write};
+use std::io::{self, Write, stdin, stdout};
 use std::str::FromStr;
 
 use chess::Color as ChessColor;
@@ -12,8 +12,9 @@ use macroquad::ui::*;
 use gamestate::GameState;
 use graphics::Textures;
 
-use chessian::eval::*;
 use chessian::*;
+use chessian::eval::*;
+use chessian::chooser::*;
 
 pub const FIELD_SIZE: f32 = 100.0;
 pub const COLOR_WHITE: Color = Color::from_hex(0xFFFFF2);
@@ -46,7 +47,7 @@ async fn main() -> Result<(), String> {
         match game_state.board().status() {
             BoardStatus::Ongoing => {
                 let Some(result) =
-                    chessian::chooser::best_move(game_state.board(), millis, true, &[], true)
+                    chessian::chooser::best_move(game_state.board(), TimeControl::MoveTime(millis), &[], stdout(), stdout())
                 else {
                     return Err(String::from("error"));
                 };
@@ -281,7 +282,7 @@ async fn main() -> Result<(), String> {
             );
             draw_text_centered("Engine calculates ...", 35.0, COLOR_BLUE);
             next_frame().await;
-            if let Some(result) = game_state.engine_move(thinking_millis) {
+            if let Some(result) = game_state.engine_move(TimeControl::MoveTime(thinking_millis)) {
                 if let Some(last_alpha) = last_alpha {
                     let diff = result.deep_eval - last_alpha;
                     if diff > 500 {
