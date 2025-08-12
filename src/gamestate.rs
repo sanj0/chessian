@@ -3,21 +3,22 @@ use std::str::FromStr;
 use chess::*;
 
 use crate::chooser::*;
+use crate::WrappedBoard;
 
 pub struct GameState {
-    board: Board,
+    board: WrappedBoard,
     legal_moves: Vec<ChessMove>,
     exclude_moves: Vec<ChessMove>,
     last_engine_move: Option<ChessMove>,
-    undo_queue: Vec<(Board, ChessMove)>,
-    redo_queue: Vec<(Board, ChessMove)>,
+    undo_queue: Vec<(WrappedBoard, ChessMove)>,
+    redo_queue: Vec<(WrappedBoard, ChessMove)>,
     last_move: Option<ChessMove>,
 }
 
 impl GameState {
     pub fn from_board(board: Board) -> Self {
         Self {
-            board,
+            board: WrappedBoard::new(board),
             legal_moves: MoveGen::new_legal(&board).collect(),
             exclude_moves: Vec::new(),
             last_engine_move: None,
@@ -33,7 +34,7 @@ impl GameState {
             .map_err(|e| format!("{e}"))
     }
 
-    pub fn board(&self) -> &Board {
+    pub fn board(&self) -> &WrappedBoard {
         &self.board
     }
 
@@ -46,9 +47,9 @@ impl GameState {
     }
 
     pub fn make_move(&mut self, m: ChessMove) {
-        self.undo_queue.push((self.board, m));
+        self.undo_queue.push((self.board.clone(), m));
         self.redo_queue.clear();
-        self.board = self.board.make_move_new(m);
+        self.board = self.board.make_move(m);
         self.get_legal_moves();
         self.last_move = Some(m);
     }
@@ -76,7 +77,7 @@ impl GameState {
 
     pub fn undo_move(&mut self) -> bool {
         if let Some((b, m)) = self.undo_queue.pop() {
-            self.redo_queue.push((self.board, self.last_move.unwrap()));
+            self.redo_queue.push((self.board.clone(), self.last_move.unwrap()));
             self.board = b;
             self.last_move = Some(m);
             self.get_legal_moves();
@@ -88,7 +89,7 @@ impl GameState {
 
     pub fn redo_move(&mut self) -> bool {
         if let Some((b, m)) = self.redo_queue.pop() {
-            self.undo_queue.push((self.board, self.last_move.unwrap()));
+            self.undo_queue.push((self.board.clone(), self.last_move.unwrap()));
             self.board = b;
             self.last_move = Some(m);
             self.get_legal_moves();
@@ -107,7 +108,7 @@ impl GameState {
     }
 
     pub fn get_legal_moves(&mut self) {
-        self.legal_moves = MoveGen::new_legal(&self.board).collect();
+        self.legal_moves = MoveGen::new_legal(&self.board.board).collect();
     }
 
     pub fn last_move(&self) -> Option<ChessMove> {

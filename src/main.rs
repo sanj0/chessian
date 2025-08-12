@@ -331,7 +331,7 @@ async fn main() -> Result<(), String> {
         // Process input
         if is_mouse_button_pressed(MouseButton::Left) {
             if matches![
-                hovered_piece(game_state.board(), invert),
+                hovered_piece(&game_state.board(), invert),
                 Some((_, color)) if color == game_state.board().side_to_move()]
             {
                 highlight_moves = game_state.legal_moves_from(hovered_square);
@@ -361,7 +361,7 @@ async fn main() -> Result<(), String> {
             };
             match c {
                 'a' => auto_respond = !auto_respond,
-                'f' => println!("{}", chessian::board_to_fen(game_state.board())),
+                'f' => println!("{}", chessian::board_to_fen(&game_state.board())),
                 'm' => {
                     engine_move_next_frame = true;
                     game_state.excluded_moves().clear();

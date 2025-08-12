@@ -6,6 +6,7 @@ use std::time::Instant;
 use chess::*;
 
 use crate::eval::*;
+use crate::WrappedBoard;
 
 pub const MATE_SCORE: i32 = 30_000;
 pub const INF: i32 = MATE_SCORE * 2;
@@ -28,13 +29,13 @@ pub struct ChooserResult {
 }
 
 pub fn best_move(
-    board: &Board,
+    board: &WrappedBoard,
     time_control: TimeControl,
     exclude_moves: &[ChessMove],
     mut uci_sink: impl Write,
     mut log: impl Write,
 ) -> Option<ChooserResult> {
-    let mut candidates: Vec<_> = MoveGen::new_legal(board)
+    let mut candidates: Vec<_> = MoveGen::new_legal(&board.board)
         .filter(|m| !exclude_moves.contains(m))
         .collect();
     let num_candidates = candidates.len();
@@ -45,7 +46,7 @@ pub fn best_move(
     let mut best_alpha = -INF;
     let mut response = None;
 
-    sort_moves(&mut candidates, board);
+    sort_moves(&mut candidates, &board.board);
 
     let t0 = Instant::now();
     let mut depth = 1;
@@ -56,7 +57,7 @@ pub fn best_move(
         let mut curr_best_move_index = 0;
         write!(log, "\ndepth {depth}");
         for (i, m) in candidates.iter().enumerate() {
-            let after_move = board.make_move_new(*m);
+            let after_move = board.make_move(*m);
             let (alpha_opt, response_opt) = negamax(
                 &after_move,
                 depth,
@@ -126,7 +127,7 @@ pub fn best_move(
 
 // None if ran out of time
 fn negamax(
-    board: &Board,
+    board: &WrappedBoard,
     depth: usize,
     mut alpha: i32,
     beta: i32,
@@ -135,10 +136,10 @@ fn negamax(
 ) -> (Option<i32>, Option<ChessMove>) {
     if depth == 0 {
         return (
-            Some(if board.side_to_move() == Color::White {
-                eval(board)
+            Some(if board.board.side_to_move() == Color::White {
+                eval(&board.board)
             } else {
-                -eval(board)
+                -eval(&board.board)
             }),
             None,
         );
@@ -150,28 +151,28 @@ fn negamax(
     match board.status() {
         BoardStatus::Checkmate => (Some(-MATE_SCORE - depth as i32), None),
         BoardStatus::Stalemate => {
-            let eval = if board.side_to_move() == Color::White {
-                eval(board)
+            let eval = if board.board.side_to_move() == Color::White {
+                eval(&board.board)
             } else {
-                -eval(board)
+                -eval(&board.board)
             };
             (
                 Some(if eval < -(PIECE_VALUES[2]) {
-                    -(MATE_SCORE / 2)
+                    (MATE_SCORE / 2)
                 } else {
-                    MATE_SCORE / 2
+                    -(MATE_SCORE / 2)
                 }),
                 None,
             )
         }
         BoardStatus::Ongoing => {
-            let mut moves = MoveGen::new_legal(board).collect::<Vec<_>>();
+            let mut moves = MoveGen::new_legal(&board.board).collect::<Vec<_>>();
             if depth != 1 {
-                sort_moves(&mut moves, board);
+                sort_moves(&mut moves, &board.board);
             }
             let mut response = None;
             for m in moves {
-                let after_move = board.make_move_new(m);
+                let after_move = board.make_move(m);
                 let value = negamax(
                     &after_move,
                     depth - 1,
