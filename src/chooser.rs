@@ -105,7 +105,7 @@ pub fn best_move(
             break;
         }
         let time = t0.elapsed().as_millis();
-        writeln!(uci_sink, "info depth {depth} seldepth {depth} scope cp {alpha} time {time}");
+        writeln!(uci_sink, "info depth {depth} seldepth {depth} score cp {alpha} time {time}");
         depth += 2;
         if curr_best_move.is_some() {
             let m = candidates.remove(curr_best_move_index);
