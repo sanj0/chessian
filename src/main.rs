@@ -1,6 +1,9 @@
 use std::env::args;
 use std::io::{self, Write, stdin, stdout};
 use std::str::FromStr;
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
 
 use chess::Color as ChessColor;
 use chess::*;
@@ -23,6 +26,8 @@ pub const COLOR_BLUE: Color = Color::from_hex(0xB3EBF2);
 pub const COLOR_RED: Color = Color::from_hex(0xFF746C);
 pub const MOVE_INDICATOR_SIZE: f32 = 15.0;
 pub const COLOR_MOVES: Color = Color::new(1., 0.1, 0.1, 0.5);
+
+pub const EVAL_BAR_W: f32 = 35.0;
 
 pub const UI_WIDTH: f32 = 200.0;
 pub const UI_ID_CHECKBOX: Id = 0;
@@ -76,21 +81,24 @@ async fn main() -> Result<(), String> {
     let mut total_time = 0;
     let mut message = "-";
     let mut pending_promotion_move: Option<ChessMove> = None;
-    let mut predicted_response: Option<ChessMove> = None;
+    let mut eval_move: Option<ChessMove> = None;
+    let mut eval_depth = 1;
+    let mut eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
 
     loop {
         root_ui().window(
             hash!(),
-            Vec2::new(FIELD_SIZE * 8.0, 0.0),
+            Vec2::new(FIELD_SIZE * 8.0 + EVAL_BAR_W as f32, 0.0),
             Vec2::new(UI_WIDTH, FIELD_SIZE * 8.0),
             |ui| {
                 ui.separator();
                 ui.label(None, &format!("Eval: {}", eval(game_state.board())));
                 if let Some(alpha) = last_alpha {
-                    ui.label(None, &format!("Last alpha: {}", alpha));
+                    ui.label(None, &format!("Deep Eval: {}", alpha));
                 } else {
-                    ui.label(None, &format!("Last alpha: None"));
+                    ui.label(None, &format!("Deep Eval: None"));
                 }
+                ui.label(None, &format!("Eval depth: {}", eval_depth - 2));
                 ui.label(None, &format!("Your move: {message}"));
                 if let Some(depth) = last_depth {
                     ui.label(None, &format!("Last depth: {}", depth));
@@ -141,13 +149,40 @@ async fn main() -> Result<(), String> {
                 );
                 if ui.button(None, "< undo") {
                     game_state.undo_move();
+                    eval_depth = 1;
+                    eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
                 }
                 ui.same_line(50.0);
                 if ui.button(None, "redo >") {
                     game_state.redo_move();
+                    eval_depth = 1;
+                    eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
                 }
             },
         );
+
+        match eval_handle.try_recv() {
+            Ok(Some(result)) => {
+                last_alpha = Some(result.deep_eval);
+                eval_move = Some(result.best_move);
+                eval_depth += 2;
+                eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
+            },
+            _ => (),
+        }
+
+        if let Some(score) = last_alpha {
+            let mut pawn_score = score as f32 / 100.0;
+            if game_state.board().side_to_move() == ChessColor::White {
+                pawn_score *= -1.0;
+            }
+            let bar_y = FIELD_SIZE * 4.0 + pawn_score * 25.0;
+            draw_rectangle(FIELD_SIZE * 8.0, bar_y, EVAL_BAR_W, FIELD_SIZE * 8.0, BLACK);
+            draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, bar_y, COLOR_WHITE);
+            draw_text(&format!("{pawn_score:.1}"), FIELD_SIZE * 8.0, FIELD_SIZE * 4.0, 15.0, COLOR_RED);
+        } else {
+            draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, FIELD_SIZE * 8.0, GRAY);
+        }
 
         let hovered_square = hovered_square(invert);
         let mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
@@ -199,7 +234,7 @@ async fn main() -> Result<(), String> {
             }
         }
 
-        if let Some(r) = predicted_response {
+        if let Some(r) = eval_move {
             let (x0, y0) = square_to_xy(if invert {
                 invert_square(r.get_source())
             } else {
@@ -266,6 +301,8 @@ async fn main() -> Result<(), String> {
                         dest,
                         Some(promotion),
                     ));
+                    eval_depth = 1;
+                    eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
                     game_state.excluded_moves().clear();
                 }
                 pending_promotion_move = None;
@@ -303,10 +340,11 @@ async fn main() -> Result<(), String> {
                 last_depth = Some(result.reached_depth);
                 last_millis = Some(result.millis);
                 total_time += result.millis;
-                predicted_response = result.response;
                 println!("{:.2}s total time thinking", total_time as f64 / 1000.0);
             }
             engine_move_next_frame = false;
+            eval_depth = 1;
+            eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
             highlight_moves.clear();
             continue;
         }
@@ -345,6 +383,8 @@ async fn main() -> Result<(), String> {
                         pending_promotion_move = Some(mov);
                     } else {
                         game_state.make_move(mov);
+                        eval_depth = 1;
+                        eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
                         game_state.excluded_moves().clear();
                         engine_move_next_frame = auto_respond;
                     }
@@ -377,11 +417,15 @@ async fn main() -> Result<(), String> {
                 'z' if control_down => {
                     if game_state.undo_move() {
                         highlight_moves.clear();
+                        eval_depth = 1;
+                        eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
                     }
                 }
                 'y' if control_down => {
                     if game_state.redo_move() {
                         highlight_moves.clear();
+                        eval_depth = 1;
+                        eval_handle = spawn_eval_thread(game_state.board().clone(), eval_depth);
                     }
                 }
                 's' => draw_square_names = !draw_square_names,
@@ -477,10 +521,21 @@ fn choose_promotion() -> Piece {
     }
 }
 
+fn spawn_eval_thread(board: WrappedBoard, depth: usize) -> mpsc::Receiver<Option<ChooserResult>> {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let eval = best_move(&board, TimeControl::Depth(depth), &[], std::io::sink(), std::io::sink());
+        tx.send(eval).expect("an eval thread died");
+    });
+
+    rx
+}
+
 fn conf() -> Conf {
     Conf {
         window_title: "Chessian".to_owned(),
-        window_width: 8 * FIELD_SIZE as i32 + UI_WIDTH as i32,
+        window_width: 8 * FIELD_SIZE as i32 + EVAL_BAR_W as i32 + UI_WIDTH as i32,
         window_height: 8 * FIELD_SIZE as i32,
         window_resizable: false,
         ..Default::default()

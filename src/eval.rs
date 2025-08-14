@@ -83,8 +83,7 @@ pub fn eval(board: &Board) -> i32 {
 
     for file in ALL_FILES {
         let file_bb = get_file(file);
-        result -= ((white_pawns & file_bb).popcnt() as i32 - 1) * DOUBLE_PAWN_SANCTION;
-        result += ((black_pawns & file_bb).popcnt() as i32 - 1) * DOUBLE_PAWN_SANCTION;
+        result -= ((white_pawns & file_bb).popcnt() as i32 - (black_pawns & file_bb).popcnt() as i32) * DOUBLE_PAWN_SANCTION;
     }
 
     result

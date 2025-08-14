@@ -51,6 +51,7 @@ pub fn best_move(
     let t0 = Instant::now();
     let mut depth = 1;
     'outer: loop {
+        let mut node_count = 0;
         let mut alpha = -INF;
         let mut curr_best_move = None;
         let mut curr_response = None;
@@ -65,6 +66,7 @@ pub fn best_move(
                 -alpha,
                 &time_control,
                 &t0,
+                &mut node_count,
             );
             let Some(its_alpha) = alpha_opt.map(|i| -i) else {
                 write!(log, "\nout of time!");
@@ -105,7 +107,7 @@ pub fn best_move(
             break;
         }
         let time = t0.elapsed().as_millis();
-        writeln!(uci_sink, "info depth {depth} seldepth {depth} score cp {alpha} time {time}");
+        writeln!(uci_sink, "info depth 2 seldepth {depth} multipv 1 score cp {alpha}  nodes {node_count} nps {:.0} time {time} pv {} {}", node_count as f32 / (time as f32 / 1000.0), curr_best_move.unwrap(), curr_response.unwrap());
         depth += 2;
         if curr_best_move.is_some() {
             let m = candidates.remove(curr_best_move_index);
@@ -133,8 +135,10 @@ fn negamax(
     beta: i32,
     time_control: &TimeControl,
     t0: &Instant,
+    node_count: &mut usize,
 ) -> (Option<i32>, Option<ChessMove>) {
     if depth == 0 {
+        *node_count += 1;
         return (
             Some(if board.board.side_to_move() == Color::White {
                 eval(&board.board)
@@ -180,6 +184,7 @@ fn negamax(
                     -alpha,
                     time_control,
                     t0,
+                    node_count,
                 );
                 let Some(mut value) = value.0 else {
                     return (None, None);
@@ -221,16 +226,9 @@ fn get_relative_capture_value(m: &ChessMove, board: &Board) -> i32 {
 }
 
 fn get_move_prio(m: &ChessMove, before: &Board) -> i32 {
-    if before.make_move_new(*m).checkers().0 != 0 {
-        PIECE_VALUES[5] * 10 - PIECE_VALUES[before.piece_on(m.get_source()).unwrap().to_index()]
-    } else {
-        let pos_score = SQUARE_SCORES[before.side_to_move().to_index()]
-            [get_piece(m, before).to_index()][m.get_dest().to_index()];
-        pos_score
-            + get_capture(m, before)
-                .map(|p| PIECE_VALUES[p.to_index()])
-                .unwrap_or(-1000)
-    }
+    let pos_score = SQUARE_SCORES[before.side_to_move().to_index()]
+        [get_piece(m, before).to_index()][m.get_dest().to_index()];
+    pos_score + get_capture_value(m, before)
 }
 
 fn sort_moves(moves: &mut [ChessMove], context: &Board) {
