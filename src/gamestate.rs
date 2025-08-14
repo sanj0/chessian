@@ -55,7 +55,7 @@ impl GameState {
     }
 
     pub fn engine_move(&mut self, time_control: TimeControl) -> Option<ChooserResult> {
-        if let Some(result) = best_move(&self.board, time_control, &self.exclude_moves, std::io::sink(), std::io::stdout()) {
+        if let Some(result) = best_move(&self.board, time_control, &self.exclude_moves, std::io::stdout(), std::io::sink()) {
             self.make_move(result.best_move);
             self.last_engine_move = Some(result.best_move);
             if let Some(r) = result.response {
