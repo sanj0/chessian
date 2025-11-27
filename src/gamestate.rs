@@ -103,6 +103,10 @@ impl GameState {
         !self.undo_queue.is_empty()
     }
 
+    pub fn history(&self) -> &Vec<(WrappedBoard, ChessMove)> {
+        &self.undo_queue
+    }
+
     pub fn can_redo(&self) -> bool {
         !self.redo_queue.is_empty()
     }

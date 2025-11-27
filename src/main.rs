@@ -182,7 +182,11 @@ async fn main() -> Result<(), String> {
 
         match eval_handle.try_recv() {
             Ok(Some(result)) => {
-                last_alpha = Some(result.deep_eval);
+                last_alpha = Some(if game_state.board().side_to_move() == ChessColor::Black {
+                    -result.deep_eval
+                } else {
+                    result.deep_eval
+                });
                 eval_move = Some(result.best_move);
                 if eval {
                     eval_depth += 1;
@@ -194,9 +198,6 @@ async fn main() -> Result<(), String> {
 
         if let Some(score) = last_alpha {
             let mut pawn_score = score as f32 / 100.0;
-            if game_state.board().side_to_move() == ChessColor::White {
-                pawn_score *= -1.0;
-            }
             let bar_y = FIELD_SIZE * 4.0 + pawn_score * 25.0;
             draw_rectangle(FIELD_SIZE * 8.0, bar_y, EVAL_BAR_W, FIELD_SIZE * 8.0, BLACK);
             draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, bar_y, COLOR_WHITE);
@@ -467,6 +468,15 @@ async fn main() -> Result<(), String> {
                 'r' => {
                     game_state = GameState::default();
                     total_time = 0;
+                }
+                't' => {
+                    let history = game_state.history();
+                    println!("Analyzing game. Will take {} seconds", history.len() * 3);
+                    for (b, m) in history {
+                        let result = chessian::chooser::best_move(b, TimeControl::new(None, TCMode::MoveTime(3000)), &[], std::io::sink(), std::io::sink()).unwrap();
+                        print!("{}", result.deep_eval);
+                        let _ = std::io::stdout().flush();
+                    }
                 }
                 otherwise => (),
             }

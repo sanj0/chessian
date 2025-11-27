@@ -127,7 +127,6 @@ pub fn best_move(
     if let Some(m) = best_move {
         writeln!(log, "chose {m} at depth {depth}\n");
     }
-    dbg!(best_alpha);
     best_move
         .map(|m| ChooserResult::new(m, response, best_alpha, depth - 1, t0.elapsed().as_millis()))
 }
@@ -144,7 +143,8 @@ fn negamax(
 ) -> (Option<i32>, Option<ChessMove>) {
     if depth == 0 {
         *node_count += 1;
-        return (Some(qsearch(board, alpha, beta)), None);
+        let (score, qdepth) = qsearch(board, alpha, beta, 0);
+        return (Some(score), None);
         //return (
         //    Some(if board.board.side_to_move() == Color::White {
         //        eval(&board.board)
@@ -209,9 +209,9 @@ fn negamax(
     }
 }
 
-fn qsearch(board: &WrappedBoard, mut alpha: i32, beta: i32) -> i32 {
+fn qsearch(board: &WrappedBoard, mut alpha: i32, beta: i32, reached_depth: usize) -> (i32, usize) {
     match board.status() {
-        BoardStatus::Checkmate => -MATE_SCORE,
+        BoardStatus::Checkmate => (-MATE_SCORE, reached_depth),
         BoardStatus::Stalemate => {
             let eval = if board.board.side_to_move() == Color::White {
                 eval(&board.board)
@@ -219,42 +219,50 @@ fn qsearch(board: &WrappedBoard, mut alpha: i32, beta: i32) -> i32 {
                 -eval(&board.board)
             };
             if eval < -(PIECE_VALUES[2]) {
-                (MATE_SCORE / 2)
+                ((MATE_SCORE / 2), reached_depth)
             } else {
-                -(MATE_SCORE / 2)
+                (-(MATE_SCORE / 2), reached_depth)
             }
         }
         BoardStatus::Ongoing => {
-            let mut moves = MoveGen::new_legal(&board.board).filter(|m| !is_quiet(m, board)).collect::<Vec<_>>();
-            if moves.is_empty() {
-                return if board.board.side_to_move() == Color::White {
-                    eval(&board.board)
-                } else {
-                    -eval(&board.board)
-                };
+            let stand_pat = if board.board.side_to_move() == Color::White {
+                eval(&board.board)
+            } else {
+                -eval(&board.board)
+            };
+            if stand_pat >= beta {
+                return (beta, reached_depth);
             }
+            if stand_pat > alpha {
+                alpha = stand_pat;
+            }
+            let mut moves = MoveGen::new_legal(&board.board).filter(|m| !is_quiet(m, board)).collect::<Vec<_>>();
             sort_moves(&mut moves, &board.board);
+            let mut reached_depth = reached_depth;
             for m in moves {
                 let after_move = board.make_move(m);
-                let value = -qsearch(
+                let (mut value, depth) = qsearch(
                     &after_move,
                     -beta,
                     -alpha,
+                    reached_depth + 1,
                 );
+                value = -value;
+                reached_depth = usize::max(reached_depth, depth);
                 if value >= beta {
-                    return beta;
+                    return (beta, reached_depth);
                 }
                 if value > alpha {
                     alpha = value;
                 }
             }
-            alpha
+            (alpha, reached_depth)
         }
     }
 }
 
 fn is_quiet(m: &ChessMove, board: &Board) -> bool {
-    get_relative_capture_value(m, board) < 0 && board.make_move_new(*m).checkers().0 == 0
+    get_relative_capture_value(m, board) < 0
 }
 
 fn get_piece(m: &ChessMove, board: &Board) -> Piece {
