@@ -19,65 +19,36 @@ pub struct Textures {
 impl Textures {
     pub async fn load(path: &str, sprite_size: f32) -> Self {
         let pieces = load_image(path).await.unwrap();
+        let piece_order = [5., 3., 2., 4., 1., 0.];
+        let mut white_pieces = piece_order
+            .into_iter()
+            .map(|x| pieces.sub_image(Rect::new(
+                x * sprite_size,
+                sprite_size,
+                sprite_size,
+                sprite_size,
+            )));
+        let mut black_pieces = piece_order
+            .into_iter()
+            .map(|x| pieces.sub_image(Rect::new(
+                x * sprite_size,
+                0.,
+                sprite_size,
+                sprite_size,
+            )));
         Textures {
-            white_pawn: pieces.sub_image(Rect::new(
-                5. * sprite_size,
-                sprite_size,
-                sprite_size,
-                sprite_size,
-            )),
-            white_knight: pieces.sub_image(Rect::new(
-                3. * sprite_size,
-                sprite_size,
-                sprite_size,
-                sprite_size,
-            )),
-            white_bishop: pieces.sub_image(Rect::new(
-                2. * sprite_size,
-                sprite_size,
-                sprite_size,
-                sprite_size,
-            )),
-            white_rook: pieces.sub_image(Rect::new(
-                4. * sprite_size,
-                sprite_size,
-                sprite_size,
-                sprite_size,
-            )),
-            white_queen: pieces.sub_image(Rect::new(
-                1. * sprite_size,
-                sprite_size,
-                sprite_size,
-                sprite_size,
-            )),
-            white_king: pieces.sub_image(Rect::new(
-                0. * sprite_size,
-                sprite_size,
-                sprite_size,
-                sprite_size,
-            )),
-
-            black_pawn: pieces.sub_image(Rect::new(5. * sprite_size, 0., sprite_size, sprite_size)),
-            black_knight: pieces.sub_image(Rect::new(
-                3. * sprite_size,
-                0.,
-                sprite_size,
-                sprite_size,
-            )),
-            black_bishop: pieces.sub_image(Rect::new(
-                2. * sprite_size,
-                0.,
-                sprite_size,
-                sprite_size,
-            )),
-            black_rook: pieces.sub_image(Rect::new(4. * sprite_size, 0., sprite_size, sprite_size)),
-            black_queen: pieces.sub_image(Rect::new(
-                1. * sprite_size,
-                0.,
-                sprite_size,
-                sprite_size,
-            )),
-            black_king: pieces.sub_image(Rect::new(0. * sprite_size, 0., sprite_size, sprite_size)),
+            white_pawn: white_pieces.next().unwrap(),
+            white_knight: white_pieces.next().unwrap(),
+            white_bishop: white_pieces.next().unwrap(),
+            white_rook: white_pieces.next().unwrap(),
+            white_queen: white_pieces.next().unwrap(),
+            white_king: white_pieces.next().unwrap(),
+            black_pawn: black_pieces.next().unwrap(),
+            black_knight: black_pieces.next().unwrap(),
+            black_bishop: black_pieces.next().unwrap(),
+            black_rook: black_pieces.next().unwrap(),
+            black_queen: black_pieces.next().unwrap(),
+            black_king: black_pieces.next().unwrap(),
         }
     }
 
