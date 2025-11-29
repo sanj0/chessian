@@ -21,27 +21,34 @@ use graphics::Textures;
 use chessian::chooser::*;
 use chessian::*;
 
+/// Size (in pixels) of the chess squares
 pub const FIELD_SIZE: f32 = 100.0;
+/// The color used for light squares
 pub const COLOR_WHITE: Color = Color::from_hex(0xFFFFF2);
+/// The color used for dark squares
 pub const COLOR_BLACK: Color = Color::from_hex(0xFFC0CB);
+/// A blue color used for accents
 pub const COLOR_BLUE: Color = Color::from_hex(0xB3EBF2);
+/// A red color used for accents
 pub const COLOR_RED: Color = Color::from_hex(0xFF746C);
+/// The radius (in pixels) of the circles indicating legal moves
 pub const MOVE_INDICATOR_SIZE: f32 = 15.0;
-pub const COLOR_MOVES: Color = Color::new(1., 0.1, 0.1, 0.5);
+/// The color of the move indicator circle
+pub const MOVE_INDICATOR_COLOR: Color = Color::new(1., 0.1, 0.1, 0.5);
 
+/// The width (in pixels) of the evaluation bar
 pub const EVAL_BAR_W: f32 = 35.0;
 
+/// The width (in pixels) of the side bar gui
 pub const UI_WIDTH: f32 = 200.0;
-pub const UI_ID_CHECKBOX: Id = 0;
-pub const UI_ID_CHECKBOX_DSN: Id = 2;
-pub const UI_ID_CHECKBOX_DP: Id = 3;
-pub const UI_ID_SLIDER: Id = 4;
-pub const UI_ID_UNDO_REDO_GROUP: Id = 1;
-pub const UI_ID_EVAL: Id = 666;
+const UI_ID_CHECKBOX: Id = 0;
+const UI_ID_CHECKBOX_DSN: Id = 2;
+const UI_ID_CHECKBOX_DP: Id = 3;
+const UI_ID_SLIDER: Id = 4;
+const UI_ID_EVAL: Id = 666;
 
 #[macroquad::main(conf)]
 async fn main() -> Result<(), String> {
-    //testsuite::eigenmann();
     let mut args = std::env::args();
     let mut game_state = if let Some(fen) = args.nth(1) {
         GameState::from_fen(&fen)?
@@ -49,54 +56,27 @@ async fn main() -> Result<(), String> {
         GameState::default()
     };
 
-    if matches![args.next(), Some(s) if s == "go"] {
-        let Some(Ok(millis)) = args.next().map(|s| s.parse()) else {
-            return Err(String::from("Expected <fen> go <millis>"));
-        };
-        match game_state.board().status() {
-            BoardStatus::Ongoing => {
-                let Some(result) = chessian::chooser::best_move(
-                    game_state.board(),
-                    TimeControl::new(None, TCMode::MoveTime(millis)),
-                    &[],
-                    stdout(),
-                    stdout(),
-                ) else {
-                    return Err(String::from("error"));
-                };
-                println!(
-                    "{}",
-                    board_to_fen(&game_state.board().make_move_new(result.best_move))
-                );
-            }
-            BoardStatus::Stalemate => println!("stalemate"),
-            BoardStatus::Checkmate => println!("lost"),
-        }
-        return Ok(());
-    }
-
     let piece_sprites = Textures::load("pieces.png", 16.0).await;
-    let mut highlight_moves: Vec<ChessMove> = Vec::new();
+    let mut clickable_moves: Vec<ChessMove> = Vec::new();
     let mut auto_respond = true;
-    let mut engine_move_next_frame = false;
-    let mut last_alpha = None;
-    let mut last_depth = None;
-    let mut last_millis = None;
     let mut draw_square_names = true;
     let mut draw_pieces = true;
     let mut thinking_millis = 5_000;
     let mut invert = false;
-    let mut total_time = 0;
+    let mut engine_move_next_frame = false;
+    let mut last_alpha = None;
+    let mut last_depth = None;
+    let mut last_millis = None;
     let mut message = "-";
     let mut pending_promotion_move: Option<ChessMove> = None;
-    let mut eval = true;
-    let mut eval_move: Option<ChessMove> = None;
-    let mut eval_depth = 1;
-    let mut eval_stop_flag = Arc::new(AtomicBool::new(false));
-    let mut eval_handle = spawn_eval_thread(
+    let mut bg_eval = true;
+    let mut bg_eval_best_move: Option<ChessMove> = None;
+    let mut bd_eval_depth = 1;
+    let mut bg_eval_stop_flag = Arc::new(AtomicBool::new(false));
+    let mut bg_eval_handle = spawn_eval_thread(
         game_state.board().clone(),
-        eval_depth,
-        eval_stop_flag.clone(),
+        bd_eval_depth,
+        bg_eval_stop_flag.clone(),
     );
 
     loop {
@@ -111,22 +91,22 @@ async fn main() -> Result<(), String> {
                 } else {
                     ui.label(None, &"Eval: None".to_string());
                 }
-                if eval {
-                    ui.label(None, &format!("Eval depth: {}", eval_depth));
+                if bg_eval {
+                    ui.label(None, &format!("Eval depth: {}", bd_eval_depth));
                 } else {
                     ui.label(None, "No eval");
                 }
-                let prev_eval = eval;
-                ui.checkbox(UI_ID_EVAL, "Eval", &mut eval);
-                if !eval {
-                    eval_stop_flag.store(true, Ordering::Relaxed);
+                let prev_eval = bg_eval;
+                ui.checkbox(UI_ID_EVAL, "Eval", &mut bg_eval);
+                if !bg_eval {
+                    bg_eval_stop_flag.store(true, Ordering::Relaxed);
                 } else if !prev_eval {
-                    eval_depth = 1;
+                    bd_eval_depth = 1;
                     spawn_new_eval_thread(
                         game_state.board().clone(),
-                        &mut eval_stop_flag,
-                        eval_depth,
-                        &mut eval_handle,
+                        &mut bg_eval_stop_flag,
+                        bd_eval_depth,
+                        &mut bg_eval_handle,
                     );
                 }
                 ui.label(None, &format!("Your move: {message}"));
@@ -179,46 +159,46 @@ async fn main() -> Result<(), String> {
                 );
                 if ui.button(None, "< undo") {
                     game_state.undo_move();
-                    if eval {
-                        eval_depth = 1;
+                    if bg_eval {
+                        bd_eval_depth = 1;
                         spawn_new_eval_thread(
                             game_state.board().clone(),
-                            &mut eval_stop_flag,
-                            eval_depth,
-                            &mut eval_handle,
+                            &mut bg_eval_stop_flag,
+                            bd_eval_depth,
+                            &mut bg_eval_handle,
                         );
                     }
                 }
                 ui.same_line(50.0);
                 if ui.button(None, "redo >") {
                     game_state.redo_move();
-                    if eval {
-                        eval_depth = 1;
+                    if bg_eval {
+                        bd_eval_depth = 1;
                         spawn_new_eval_thread(
                             game_state.board().clone(),
-                            &mut eval_stop_flag,
-                            eval_depth,
-                            &mut eval_handle,
+                            &mut bg_eval_stop_flag,
+                            bd_eval_depth,
+                            &mut bg_eval_handle,
                         );
                     }
                 }
             },
         );
 
-        if let Ok(Some(result)) = eval_handle.try_recv() {
+        if let Ok(Some(result)) = bg_eval_handle.try_recv() {
             last_alpha = Some(if game_state.board().side_to_move() == ChessColor::Black {
                 -result.deep_eval
             } else {
                 result.deep_eval
             });
-            eval_move = Some(result.best_move);
-            if eval {
-                eval_depth += 1;
+            bg_eval_best_move = Some(result.best_move);
+            if bg_eval {
+                bd_eval_depth += 1;
                 spawn_new_eval_thread(
                     game_state.board().clone(),
-                    &mut eval_stop_flag,
-                    eval_depth,
-                    &mut eval_handle,
+                    &mut bg_eval_stop_flag,
+                    bd_eval_depth,
+                    &mut bg_eval_handle,
                 );
             }
         }
@@ -288,8 +268,8 @@ async fn main() -> Result<(), String> {
             }
         }
 
-        if let Some(r) = eval_move
-            && eval
+        if let Some(r) = bg_eval_best_move
+            && bg_eval
         {
             let (x0, y0) = square_to_xy(if invert {
                 invert_square(r.get_source())
@@ -357,13 +337,13 @@ async fn main() -> Result<(), String> {
                         dest,
                         Some(promotion),
                     ));
-                    if eval {
-                        eval_depth = 1;
+                    if bg_eval {
+                        bd_eval_depth = 1;
                         spawn_new_eval_thread(
                             game_state.board().clone(),
-                            &mut eval_stop_flag,
-                            eval_depth,
-                            &mut eval_handle,
+                            &mut bg_eval_stop_flag,
+                            bd_eval_depth,
+                            &mut bg_eval_handle,
                         );
                     }
                     game_state.excluded_moves().clear();
@@ -404,20 +384,18 @@ async fn main() -> Result<(), String> {
                 last_alpha = Some(result.deep_eval);
                 last_depth = Some(result.reached_depth);
                 last_millis = Some(result.millis);
-                total_time += result.millis;
-                println!("{:.2}s total time thinking", total_time as f64 / 1000.0);
             }
             engine_move_next_frame = false;
-            if eval {
-                eval_depth = 1;
+            if bg_eval {
+                bd_eval_depth = 1;
                 spawn_new_eval_thread(
                     game_state.board().clone(),
-                    &mut eval_stop_flag,
-                    eval_depth,
-                    &mut eval_handle,
+                    &mut bg_eval_stop_flag,
+                    bd_eval_depth,
+                    &mut bg_eval_handle,
                 );
             }
-            highlight_moves.clear();
+            clickable_moves.clear();
             continue;
         }
 
@@ -427,14 +405,14 @@ async fn main() -> Result<(), String> {
         }
 
         // Draw highlighted moves
-        for m in &highlight_moves {
+        for m in &clickable_moves {
             let dest = m.get_dest();
             let (x, y) = square_to_xy(if invert { invert_square(dest) } else { dest });
             draw_circle(
                 x + FIELD_SIZE / 2.,
                 y + FIELD_SIZE / 2.,
                 MOVE_INDICATOR_SIZE,
-                COLOR_MOVES,
+                MOVE_INDICATOR_COLOR,
             );
         }
 
@@ -444,9 +422,9 @@ async fn main() -> Result<(), String> {
                 hovered_piece(game_state.board(), invert),
                 Some((_, color)) if color == game_state.board().side_to_move()]
             {
-                highlight_moves = game_state.legal_moves_from(hovered_square);
+                clickable_moves = game_state.legal_moves_from(hovered_square);
             } else {
-                if let Some(m) = highlight_moves
+                if let Some(m) = clickable_moves
                     .iter()
                     .find(|m| m.get_dest() == hovered_square)
                 {
@@ -455,20 +433,20 @@ async fn main() -> Result<(), String> {
                         pending_promotion_move = Some(mov);
                     } else {
                         game_state.make_move(mov);
-                        if eval {
-                            eval_depth = 1;
+                        if bg_eval {
+                            bd_eval_depth = 1;
                             spawn_new_eval_thread(
                                 game_state.board().clone(),
-                                &mut eval_stop_flag,
-                                eval_depth,
-                                &mut eval_handle,
+                                &mut bg_eval_stop_flag,
+                                bd_eval_depth,
+                                &mut bg_eval_handle,
                             );
                         }
                         game_state.excluded_moves().clear();
                         engine_move_next_frame = auto_respond;
                     }
                 }
-                highlight_moves.clear();
+                clickable_moves.clear();
             }
         }
 
@@ -484,7 +462,7 @@ async fn main() -> Result<(), String> {
                 'm' => {
                     engine_move_next_frame = true;
                     game_state.excluded_moves().clear();
-                    highlight_moves.clear();
+                    clickable_moves.clear();
                 }
                 'd' => {
                     if let Some(m) = game_state.last_engine_move() {
@@ -495,28 +473,28 @@ async fn main() -> Result<(), String> {
                 }
                 'z' if control_down => {
                     if game_state.undo_move() {
-                        highlight_moves.clear();
-                        if eval {
-                            eval_depth = 1;
+                        clickable_moves.clear();
+                        if bg_eval {
+                            bd_eval_depth = 1;
                             spawn_new_eval_thread(
                                 game_state.board().clone(),
-                                &mut eval_stop_flag,
-                                eval_depth,
-                                &mut eval_handle,
+                                &mut bg_eval_stop_flag,
+                                bd_eval_depth,
+                                &mut bg_eval_handle,
                             );
                         }
                     }
                 }
                 'y' if control_down => {
                     if game_state.redo_move() {
-                        highlight_moves.clear();
-                        if eval {
-                            eval_depth = 1;
+                        clickable_moves.clear();
+                        if bg_eval {
+                            bd_eval_depth = 1;
                             spawn_new_eval_thread(
                                 game_state.board().clone(),
-                                &mut eval_stop_flag,
-                                eval_depth,
-                                &mut eval_handle,
+                                &mut bg_eval_stop_flag,
+                                bd_eval_depth,
+                                &mut bg_eval_handle,
                             );
                         }
                     }
@@ -526,7 +504,6 @@ async fn main() -> Result<(), String> {
                 'i' => invert = !invert,
                 'r' => {
                     game_state = GameState::default();
-                    total_time = 0;
                 }
                 't' => {
                     let history = game_state.history();
@@ -544,14 +521,12 @@ async fn main() -> Result<(), String> {
                         let _ = std::io::stdout().flush();
                     }
                 }
-                otherwise => (),
+                _otherwise => (),
             }
         }
 
         next_frame().await
     }
-
-    Ok(())
 }
 
 fn draw_text_centered(text: &str, font_size: f32, color: Color) {
