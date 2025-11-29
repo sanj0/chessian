@@ -1,7 +1,6 @@
 pub mod chooser;
 pub mod eval;
 pub mod gamestate;
-pub mod graphics;
 pub mod testsuite;
 
 use std::collections::HashMap;

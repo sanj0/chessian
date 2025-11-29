@@ -1,3 +1,5 @@
+mod graphics;
+
 use std::env::args;
 use std::io::{self, Write, stdin, stdout};
 use std::str::FromStr;
