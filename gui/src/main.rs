@@ -57,8 +57,10 @@ struct GuiState {
     draw_square_names: bool,
     draw_pieces: bool,
     thinking_millis: u128,
+    invert: bool,
     bg_eval: bool,
     bg_eval_depth: usize,
+    bg_eval_best_move: Option<ChessMove>,
     bg_eval_stop_flag: Arc<AtomicBool>,
     bg_eval_handle: mpsc::Receiver<Option<ChooserResult>>,
 }
@@ -75,104 +77,27 @@ async fn main() -> Result<(), String> {
     let mut gui_state = GuiState::new(game_state.board());
     let piece_sprites = Textures::load("pieces.png", 16.0).await;
     let mut clickable_moves: Vec<ChessMove> = Vec::new();
-    let mut invert = false;
     let mut pending_promotion_move: Option<ChessMove> = None;
-    let mut bg_eval_best_move: Option<ChessMove> = None;
 
     loop {
         draw_ui(&mut gui_state, &mut game_state);
-        if let Ok(Some(result)) = gui_state.bg_eval_handle.try_recv() {
-            gui_state.last_alpha = Some(if game_state.board().side_to_move() == ChessColor::Black {
-                -result.deep_eval
-            } else {
-                result.deep_eval
-            });
-            bg_eval_best_move = Some(result.best_move);
-            if gui_state.bg_eval {
-                gui_state.bg_eval_depth += 1;
-                spawn_new_eval_thread(
-                    game_state.board().clone(),
-                    &mut gui_state.bg_eval_stop_flag,
-                    gui_state.bg_eval_depth,
-                    &mut gui_state.bg_eval_handle,
-                );
-            }
-        }
+        try_recv_bg_eval(&mut gui_state, &mut game_state);
+        draw_eval_bar(&gui_state);
 
-        if let Some(score) = gui_state.last_alpha {
-            let pawn_score = score as f32 / 100.0;
-            let bar_y = FIELD_SIZE * 4.0 + pawn_score * 25.0;
-            draw_rectangle(FIELD_SIZE * 8.0, bar_y, EVAL_BAR_W, FIELD_SIZE * 8.0, BLACK);
-            draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, bar_y, COLOR_WHITE);
-            draw_text(
-                &format!("{pawn_score:.1}"),
-                FIELD_SIZE * 8.0,
-                FIELD_SIZE * 4.0,
-                15.0,
-                COLOR_RED,
-            );
-        } else {
-            draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, FIELD_SIZE * 8.0, GRAY);
-        }
+        let hovered_square = hovered_square(gui_state.invert);
+        let is_mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
 
-        let hovered_square = hovered_square(invert);
-        let mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
+        draw_board(&gui_state, &game_state, &piece_sprites, hovered_square, is_mouse_in_board);
 
-        for y in 0..=7 {
-            for x in 0..=7 {
-                let square = Square::make_square(
-                    Rank::from_index(if invert { y } else { 7 - y }),
-                    File::from_index(if invert { 7 - x } else { x }),
-                );
-                let x_pos = x as f32 * FIELD_SIZE;
-                let y_pos = y as f32 * FIELD_SIZE;
-                let (color, opp_color) = if (x + y) % 2 == 0 {
-                    (COLOR_WHITE, COLOR_BLACK)
-                } else {
-                    (COLOR_BLACK, COLOR_WHITE)
-                };
-                // Draw field
-                draw_rectangle(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, color);
-                if square == hovered_square && mouse_in_board {
-                    draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_BLUE);
-                }
-                // Draw piece?
-                if gui_state.draw_pieces
-                    && let Some((piece, color)) = game_state
-                        .board()
-                        .piece_on(square)
-                        .zip(game_state.board().color_on(square))
-                {
-                    draw_piece(piece, color, x_pos, y_pos, &piece_sprites);
-                }
-
-                if gui_state.draw_square_names {
-                    draw_text(
-                        &square.to_string(),
-                        x_pos,
-                        y_pos + FIELD_SIZE,
-                        20.0,
-                        opp_color,
-                    );
-                }
-
-                if let Some(m) = game_state.last_move()
-                    && (m.get_source() == square || m.get_dest() == square)
-                {
-                    draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_RED);
-                }
-            }
-        }
-
-        if let Some(r) = bg_eval_best_move
+        if let Some(r) = gui_state.bg_eval_best_move
             && gui_state.bg_eval
         {
-            let (x0, y0) = square_to_xy(if invert {
+            let (x0, y0) = square_to_xy(if gui_state.invert {
                 invert_square(r.get_source())
             } else {
                 r.get_source()
             });
-            let (x1, y1) = square_to_xy(if invert {
+            let (x1, y1) = square_to_xy(if gui_state.invert {
                 invert_square(r.get_dest())
             } else {
                 r.get_dest()
@@ -202,7 +127,7 @@ async fn main() -> Result<(), String> {
                 .iter()
                 .zip([Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight].iter())
             {
-                let (x, y) = square_to_xy(if invert {
+                let (x, y) = square_to_xy(if gui_state.invert {
                     invert_square(*square)
                 } else {
                     *square
@@ -279,7 +204,7 @@ async fn main() -> Result<(), String> {
             continue;
         }
 
-        if !mouse_in_board {
+        if !is_mouse_in_board {
             next_frame().await;
             continue;
         }
@@ -287,7 +212,7 @@ async fn main() -> Result<(), String> {
         // Draw highlighted moves
         for m in &clickable_moves {
             let dest = m.get_dest();
-            let (x, y) = square_to_xy(if invert { invert_square(dest) } else { dest });
+            let (x, y) = square_to_xy(if gui_state.invert { invert_square(dest) } else { dest });
             draw_circle(
                 x + FIELD_SIZE / 2.,
                 y + FIELD_SIZE / 2.,
@@ -299,7 +224,7 @@ async fn main() -> Result<(), String> {
         // Process input
         if is_mouse_button_pressed(MouseButton::Left) {
             if matches![
-                hovered_piece(game_state.board(), invert),
+                hovered_piece(game_state.board(), gui_state.invert),
                 Some((_, color)) if color == game_state.board().side_to_move()]
             {
                 clickable_moves = game_state.legal_moves_from(hovered_square);
@@ -381,7 +306,7 @@ async fn main() -> Result<(), String> {
                 }
                 's' => gui_state.draw_square_names = !gui_state.draw_square_names,
                 'p' => gui_state.draw_pieces = !gui_state.draw_pieces,
-                'i' => invert = !invert,
+                'i' => gui_state.invert = !gui_state.invert,
                 'r' => {
                     game_state = GameState::default();
                 }
@@ -625,6 +550,92 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
         );
 }
 
+fn draw_board(gui_state: &GuiState, game_state: &GameState, piece_sprites: &Textures, hovered_square: Square, is_mouse_in_board: bool) {
+    for y in 0..=7 {
+        for x in 0..=7 {
+            let square = Square::make_square(
+                Rank::from_index(if gui_state.invert { y } else { 7 - y }),
+                File::from_index(if gui_state.invert { 7 - x } else { x }),
+            );
+            let x_pos = x as f32 * FIELD_SIZE;
+            let y_pos = y as f32 * FIELD_SIZE;
+            let (color, opp_color) = if (x + y) % 2 == 0 {
+                (COLOR_WHITE, COLOR_BLACK)
+            } else {
+                (COLOR_BLACK, COLOR_WHITE)
+            };
+            // Draw field
+            draw_rectangle(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, color);
+            if square == hovered_square && is_mouse_in_board {
+                draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_BLUE);
+            }
+            // Draw piece?
+            if gui_state.draw_pieces
+                && let Some((piece, color)) = game_state
+                    .board()
+                    .piece_on(square)
+                    .zip(game_state.board().color_on(square))
+            {
+                draw_piece(piece, color, x_pos, y_pos, &piece_sprites);
+            }
+
+            if gui_state.draw_square_names {
+                draw_text(
+                    &square.to_string(),
+                    x_pos,
+                    y_pos + FIELD_SIZE,
+                    20.0,
+                    opp_color,
+                );
+            }
+
+            if let Some(m) = game_state.last_move()
+                && (m.get_source() == square || m.get_dest() == square)
+            {
+                draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_RED);
+            }
+        }
+    }
+}
+
+fn draw_eval_bar(gui_state: &GuiState) {
+    if let Some(score) = gui_state.last_alpha {
+        let pawn_score = score as f32 / 100.0;
+        let bar_y = FIELD_SIZE * 4.0 + pawn_score * 25.0;
+        draw_rectangle(FIELD_SIZE * 8.0, bar_y, EVAL_BAR_W, FIELD_SIZE * 8.0, BLACK);
+        draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, bar_y, COLOR_WHITE);
+        draw_text(
+            &format!("{pawn_score:.1}"),
+            FIELD_SIZE * 8.0,
+            FIELD_SIZE * 4.0,
+            15.0,
+            COLOR_RED,
+        );
+    } else {
+        draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, FIELD_SIZE * 8.0, GRAY);
+    }
+}
+
+fn try_recv_bg_eval(gui_state: &mut GuiState, game_state: &mut GameState) {
+    if let Ok(Some(result)) = gui_state.bg_eval_handle.try_recv() {
+        gui_state.last_alpha = Some(if game_state.board().side_to_move() == ChessColor::Black {
+            -result.deep_eval
+        } else {
+            result.deep_eval
+        });
+        gui_state.bg_eval_best_move = Some(result.best_move);
+        if gui_state.bg_eval {
+            gui_state.bg_eval_depth += 1;
+            spawn_new_eval_thread(
+                game_state.board().clone(),
+                &mut gui_state.bg_eval_stop_flag,
+                gui_state.bg_eval_depth,
+                &mut gui_state.bg_eval_handle,
+            );
+        }
+    }
+}
+
 impl GuiState {
     fn new(board: &HistoryBoard) -> Self {
         let bg_eval_stop_flag = Arc::new(AtomicBool::new(false));
@@ -637,8 +648,10 @@ impl GuiState {
             draw_square_names: true,
             draw_pieces: true,
             thinking_millis: 3_000,
+            invert: false,
             bg_eval: true,
             bg_eval_depth: 1,
+            bg_eval_best_move: None,
             bg_eval_stop_flag: bg_eval_stop_flag.clone(),
             bg_eval_handle: spawn_eval_thread(
                 board.clone(),
