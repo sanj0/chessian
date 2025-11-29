@@ -120,9 +120,9 @@ pub fn board_to_fen(board: &Board) -> String {
     if let Some(en_passant) = board.en_passant() {
         fen.push_str(&format!("{}", en_passant));
     } else {
-        fen.push_str("-");
+        fen.push('-');
     }
-    fen.push_str(" ");
+    fen.push(' ');
 
     // halfmove clock and fullmove number
     fen.push_str("0 1");
