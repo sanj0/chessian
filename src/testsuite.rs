@@ -3,7 +3,7 @@ use crate::*;
 use crate::chooser::*;
 
 pub struct TestCase {
-    pub board: WrappedBoard,
+    pub board: HistoryBoard,
     pub solution: ChessMove,
     pub id: String,
 }
@@ -22,7 +22,7 @@ impl TestCase {
         let id_str = &line[semi_idx + 6..line.len()-2];
         let board = Board::from_str(fen).map_err(|e| format!("{e}"))?;
         Ok(Self {
-            board: WrappedBoard::new(board),
+            board: HistoryBoard::new(board),
             solution: ChessMove::from_san(&board, solution_str).map_err(|e| format!("{e}"))?,
             id: String::from(id_str),
         })

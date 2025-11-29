@@ -6,7 +6,7 @@ use std::time::Instant;
 use chess::*;
 
 use crate::eval::*;
-use crate::WrappedBoard;
+use crate::HistoryBoard;
 
 pub const MATE_SCORE: i32 = 30_000;
 pub const INF: i32 = MATE_SCORE * 2;
@@ -33,7 +33,7 @@ pub struct ChooserResult {
 }
 
 pub fn best_move(
-    board: &WrappedBoard,
+    board: &HistoryBoard,
     time_control: TimeControl,
     exclude_moves: &[ChessMove],
     mut uci_sink: impl Write,
@@ -133,7 +133,7 @@ pub fn best_move(
 
 // None if ran out of time
 fn negamax(
-    board: &WrappedBoard,
+    board: &HistoryBoard,
     depth: usize,
     mut alpha: i32,
     beta: i32,
@@ -209,7 +209,7 @@ fn negamax(
     }
 }
 
-fn qsearch(board: &WrappedBoard, mut alpha: i32, beta: i32, reached_depth: usize) -> (i32, usize) {
+fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32, reached_depth: usize) -> (i32, usize) {
     match board.status() {
         BoardStatus::Checkmate => (-MATE_SCORE, reached_depth),
         BoardStatus::Stalemate => {

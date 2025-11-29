@@ -9,12 +9,12 @@ use std::ops::Deref;
 use chess::*;
 
 #[derive(Clone, Debug)]
-pub struct WrappedBoard {
+pub struct HistoryBoard {
     pub board: Board,
     pub history: HashMap<u64, u8>,
 }
 
-impl WrappedBoard {
+impl HistoryBoard {
     pub fn new(board: Board) -> Self {
         let mut history = HashMap::new();
         history.insert(board.get_hash(), 1);
@@ -43,7 +43,7 @@ impl WrappedBoard {
     }
 }
 
-impl Deref for WrappedBoard {
+impl Deref for HistoryBoard {
     type Target = Board;
 
     fn deref(&self) -> &Self::Target {
@@ -54,19 +54,15 @@ impl Deref for WrappedBoard {
 pub fn board_to_fen(board: &Board) -> String {
     let mut fen = String::new();
 
-    // 1. Convert the board's piece positions to the FEN piece placement part
     for rank in ALL_RANKS.into_iter().rev() {
-        // Start from rank 8 to 1
         let mut empty_count = 0;
         for file in ALL_FILES {
             let square = Square::make_square(rank, file);
             if let Some((piece, color)) = board.piece_on(square).zip(board.color_on(square)) {
-                // If there were empty squares before, push the empty count
                 if empty_count > 0 {
                     fen.push_str(&empty_count.to_string());
                     empty_count = 0;
                 }
-                // Append the piece character to the FEN string
                 match piece {
                     Piece::Pawn => fen.push_str(if color == Color::White { "P" } else { "p" }),
                     Piece::Knight => fen.push_str(if color == Color::White { "N" } else { "n" }),
@@ -79,18 +75,17 @@ pub fn board_to_fen(board: &Board) -> String {
                 empty_count += 1;
             }
         }
-        // If there are empty squares, append the count to the FEN string
+
         if empty_count > 0 {
             fen.push_str(&empty_count.to_string());
         }
 
-        // Add a separator between ranks, but not after the last one
         if rank.to_index() > 0 {
             fen.push('/');
         }
     }
 
-    // 2. Add the active color (White or Black)
+    // active color
     let active_color = if board.side_to_move() == Color::White {
         "w"
     } else {
@@ -98,6 +93,7 @@ pub fn board_to_fen(board: &Board) -> String {
     };
     fen.push_str(&format!(" {active_color} "));
 
+    // castle rights
     let mut any_castle = false;
     if board.castle_rights(Color::White).has_kingside() {
         any_castle = true;
@@ -121,7 +117,7 @@ pub fn board_to_fen(board: &Board) -> String {
     }
     fen.push(' ');
 
-    // 4. Add en passant target square
+    // en passant target square
     if let Some(en_passant) = board.en_passant() {
         fen.push_str(&format!("{}", en_passant));
     } else {
@@ -129,15 +125,8 @@ pub fn board_to_fen(board: &Board) -> String {
     }
     fen.push_str(" ");
 
-    // 5. Add the halfmove clock and fullmove number
-    // You can track the halfmove clock and fullmove number manually or from some game state
-    fen.push_str("0 1"); // Placeholder for halfmove clock and fullmove number
+    // halfmove clock and fullmove number
+    fen.push_str("0 1");
 
     fen
-}
-
-fn main() {
-    let board = Board::default();
-    let fen = board_to_fen(&board);
-    println!("{}", fen); // Prints the FEN of the default starting position
 }

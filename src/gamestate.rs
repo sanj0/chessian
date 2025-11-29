@@ -3,22 +3,22 @@ use std::str::FromStr;
 use chess::*;
 
 use crate::chooser::*;
-use crate::WrappedBoard;
+use crate::HistoryBoard;
 
 pub struct GameState {
-    board: WrappedBoard,
+    board: HistoryBoard,
     legal_moves: Vec<ChessMove>,
     exclude_moves: Vec<ChessMove>,
     last_engine_move: Option<ChessMove>,
-    undo_queue: Vec<(WrappedBoard, ChessMove)>,
-    redo_queue: Vec<(WrappedBoard, ChessMove)>,
+    undo_queue: Vec<(HistoryBoard, ChessMove)>,
+    redo_queue: Vec<(HistoryBoard, ChessMove)>,
     last_move: Option<ChessMove>,
 }
 
 impl GameState {
     pub fn from_board(board: Board) -> Self {
         Self {
-            board: WrappedBoard::new(board),
+            board: HistoryBoard::new(board),
             legal_moves: MoveGen::new_legal(&board).collect(),
             exclude_moves: Vec::new(),
             last_engine_move: None,
@@ -34,7 +34,7 @@ impl GameState {
             .map_err(|e| format!("{e}"))
     }
 
-    pub fn board(&self) -> &WrappedBoard {
+    pub fn board(&self) -> &HistoryBoard {
         &self.board
     }
 
@@ -103,7 +103,7 @@ impl GameState {
         !self.undo_queue.is_empty()
     }
 
-    pub fn history(&self) -> &Vec<(WrappedBoard, ChessMove)> {
+    pub fn history(&self) -> &Vec<(HistoryBoard, ChessMove)> {
         &self.undo_queue
     }
 

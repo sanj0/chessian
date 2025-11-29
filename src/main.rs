@@ -564,7 +564,7 @@ fn choose_promotion() -> Piece {
     }
 }
 
-fn spawn_new_eval_thread(board: WrappedBoard, stop_flag: &mut Arc<AtomicBool>, eval_depth: usize, rec: &mut mpsc::Receiver<Option<ChooserResult>>) {
+fn spawn_new_eval_thread(board: HistoryBoard, stop_flag: &mut Arc<AtomicBool>, eval_depth: usize, rec: &mut mpsc::Receiver<Option<ChooserResult>>) {
     stop_flag.store(true, Ordering::Relaxed);
     // wait for old eval thread to stop
     rec.recv();
@@ -572,7 +572,7 @@ fn spawn_new_eval_thread(board: WrappedBoard, stop_flag: &mut Arc<AtomicBool>, e
     *rec = spawn_eval_thread(board, eval_depth, stop_flag.clone());
 }
 
-fn spawn_eval_thread(board: WrappedBoard, depth: usize, stop_flag: Arc<AtomicBool>) -> mpsc::Receiver<Option<ChooserResult>> {
+fn spawn_eval_thread(board: HistoryBoard, depth: usize, stop_flag: Arc<AtomicBool>) -> mpsc::Receiver<Option<ChooserResult>> {
     let (tx, rx) = mpsc::channel();
 
     thread::spawn(move || {
