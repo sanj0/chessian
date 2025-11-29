@@ -87,90 +87,24 @@ async fn main() -> Result<(), String> {
         let hovered_square = hovered_square(gui_state.invert);
         let is_mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
 
-        draw_board(&gui_state, &game_state, &piece_sprites, hovered_square, is_mouse_in_board);
-
-        if let Some(r) = gui_state.bg_eval_best_move
-            && gui_state.bg_eval
-        {
-            let (x0, y0) = square_to_xy(if gui_state.invert {
-                invert_square(r.get_source())
-            } else {
-                r.get_source()
-            });
-            let (x1, y1) = square_to_xy(if gui_state.invert {
-                invert_square(r.get_dest())
-            } else {
-                r.get_dest()
-            });
-            draw_line(
-                x0 + FIELD_SIZE / 2.0,
-                y0 + FIELD_SIZE / 2.0,
-                x1 + FIELD_SIZE / 2.0,
-                y1 + FIELD_SIZE / 2.0,
-                5.0,
-                COLOR_RED,
-            );
-        }
+        draw_board(
+            &gui_state,
+            &game_state,
+            &piece_sprites,
+            hovered_square,
+            is_mouse_in_board,
+        );
+        draw_bg_eval_best_move(&gui_state);
 
         if let Some(pending_promotion) = pending_promotion_move {
-            let dest = pending_promotion.get_dest();
-            let to_inner_board = if dest.get_rank() == Rank::First {
-                Square::up
-            } else {
-                Square::down
-            };
-            let queen_sq = to_inner_board(&dest).unwrap();
-            let rook_sq = to_inner_board(&queen_sq).unwrap();
-            let bishop_sq = to_inner_board(&rook_sq).unwrap();
-            let knight_sq = to_inner_board(&bishop_sq).unwrap();
-            for (square, piece) in [queen_sq, rook_sq, bishop_sq, knight_sq]
-                .iter()
-                .zip([Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight].iter())
-            {
-                let (x, y) = square_to_xy(if gui_state.invert {
-                    invert_square(*square)
-                } else {
-                    *square
-                });
-                draw_piece(
-                    *piece,
-                    game_state.board().side_to_move(),
-                    x,
-                    y,
-                    &piece_sprites,
-                );
-            }
-            if is_mouse_button_pressed(MouseButton::Left) {
-                let clicked_promotion = if hovered_square == queen_sq {
-                    Some(Piece::Queen)
-                } else if hovered_square == rook_sq {
-                    Some(Piece::Rook)
-                } else if hovered_square == bishop_sq {
-                    Some(Piece::Bishop)
-                } else if hovered_square == knight_sq {
-                    Some(Piece::Knight)
-                } else {
-                    None
-                };
-                if let Some(promotion) = clicked_promotion {
-                    game_state.make_move(ChessMove::new(
-                        pending_promotion.get_source(),
-                        dest,
-                        Some(promotion),
-                    ));
-                    if gui_state.bg_eval {
-                        gui_state.bg_eval_depth = 1;
-                        spawn_new_eval_thread(
-                            game_state.board().clone(),
-                            &mut gui_state.bg_eval_stop_flag,
-                            gui_state.bg_eval_depth,
-                            &mut gui_state.bg_eval_handle,
-                        );
-                    }
-                    game_state.excluded_moves().clear();
-                }
-                pending_promotion_move = None;
-            }
+            promotion_menu(
+                &mut gui_state,
+                &mut game_state,
+                &piece_sprites,
+                pending_promotion,
+                hovered_square,
+            );
+            pending_promotion_move = None;
         }
 
         if gui_state.engine_move_next_frame {
@@ -183,9 +117,10 @@ async fn main() -> Result<(), String> {
             );
             draw_text_centered("Engine calculates ...", 35.0, COLOR_BLUE);
             next_frame().await;
-            if let Some(result) =
-                game_state.engine_move(TimeControl::new(None, TCMode::MoveTime(gui_state.thinking_millis)))
-            {
+            if let Some(result) = game_state.engine_move(TimeControl::new(
+                None,
+                TCMode::MoveTime(gui_state.thinking_millis),
+            )) {
                 gui_state.last_alpha = Some(result.deep_eval);
                 gui_state.last_depth = Some(result.reached_depth);
                 gui_state.last_millis = Some(result.millis);
@@ -212,7 +147,11 @@ async fn main() -> Result<(), String> {
         // Draw highlighted moves
         for m in &clickable_moves {
             let dest = m.get_dest();
-            let (x, y) = square_to_xy(if gui_state.invert { invert_square(dest) } else { dest });
+            let (x, y) = square_to_xy(if gui_state.invert {
+                invert_square(dest)
+            } else {
+                dest
+            });
             draw_circle(
                 x + FIELD_SIZE / 2.,
                 y + FIELD_SIZE / 2.,
@@ -489,7 +428,11 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
             }
             ui.separator();
             ui.checkbox(UI_ID_CHECKBOX, "Auto respond", &mut gui_state.auto_respond);
-            ui.checkbox(UI_ID_CHECKBOX_DSN, "Square names", &mut gui_state.draw_square_names);
+            ui.checkbox(
+                UI_ID_CHECKBOX_DSN,
+                "Square names",
+                &mut gui_state.draw_square_names,
+            );
             ui.checkbox(UI_ID_CHECKBOX_DP, "Draw pieces", &mut gui_state.draw_pieces);
             ui.label(None, &format!("Game: {:?}", game_state.board().status()));
             let mut seconds = gui_state.thinking_millis as f32 / 1000.0;
@@ -515,10 +458,10 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
                 &format!(
                     "Don't play: {}",
                     game_state
-                    .excluded_moves()
-                    .iter()
-                    .map(|m| format!("{},", m))
-                    .collect::<String>()
+                        .excluded_moves()
+                        .iter()
+                        .map(|m| format!("{},", m))
+                        .collect::<String>()
                 ),
             );
             if ui.button(None, "< undo") {
@@ -547,10 +490,16 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
                 }
             }
         },
-        );
+    );
 }
 
-fn draw_board(gui_state: &GuiState, game_state: &GameState, piece_sprites: &Textures, hovered_square: Square, is_mouse_in_board: bool) {
+fn draw_board(
+    gui_state: &GuiState,
+    game_state: &GameState,
+    piece_sprites: &Textures,
+    hovered_square: Square,
+    is_mouse_in_board: bool,
+) {
     for y in 0..=7 {
         for x in 0..=7 {
             let square = Square::make_square(
@@ -594,6 +543,97 @@ fn draw_board(gui_state: &GuiState, game_state: &GameState, piece_sprites: &Text
             {
                 draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_RED);
             }
+        }
+    }
+}
+
+fn draw_bg_eval_best_move(gui_state: &GuiState) {
+    if let Some(r) = gui_state.bg_eval_best_move
+        && gui_state.bg_eval
+    {
+        let (x0, y0) = square_to_xy(if gui_state.invert {
+            invert_square(r.get_source())
+        } else {
+            r.get_source()
+        });
+        let (x1, y1) = square_to_xy(if gui_state.invert {
+            invert_square(r.get_dest())
+        } else {
+            r.get_dest()
+        });
+        draw_line(
+            x0 + FIELD_SIZE / 2.0,
+            y0 + FIELD_SIZE / 2.0,
+            x1 + FIELD_SIZE / 2.0,
+            y1 + FIELD_SIZE / 2.0,
+            5.0,
+            COLOR_RED,
+        );
+    }
+}
+
+fn promotion_menu(
+    gui_state: &mut GuiState,
+    game_state: &mut GameState,
+    piece_sprites: &Textures,
+    pawn_move: ChessMove,
+    hovered_square: Square,
+) {
+    let dest = pawn_move.get_dest();
+    let to_inner_board = if dest.get_rank() == Rank::First {
+        Square::up
+    } else {
+        Square::down
+    };
+    let queen_sq = to_inner_board(&dest).unwrap();
+    let rook_sq = to_inner_board(&queen_sq).unwrap();
+    let bishop_sq = to_inner_board(&rook_sq).unwrap();
+    let knight_sq = to_inner_board(&bishop_sq).unwrap();
+    for (square, piece) in [queen_sq, rook_sq, bishop_sq, knight_sq]
+        .iter()
+        .zip([Piece::Queen, Piece::Rook, Piece::Bishop, Piece::Knight].iter())
+    {
+        let (x, y) = square_to_xy(if gui_state.invert {
+            invert_square(*square)
+        } else {
+            *square
+        });
+        draw_piece(
+            *piece,
+            game_state.board().side_to_move(),
+            x,
+            y,
+            &piece_sprites,
+        );
+    }
+    if is_mouse_button_pressed(MouseButton::Left) {
+        let clicked_promotion = if hovered_square == queen_sq {
+            Some(Piece::Queen)
+        } else if hovered_square == rook_sq {
+            Some(Piece::Rook)
+        } else if hovered_square == bishop_sq {
+            Some(Piece::Bishop)
+        } else if hovered_square == knight_sq {
+            Some(Piece::Knight)
+        } else {
+            None
+        };
+        if let Some(promotion) = clicked_promotion {
+            game_state.make_move(ChessMove::new(
+                pawn_move.get_source(),
+                dest,
+                Some(promotion),
+            ));
+            if gui_state.bg_eval {
+                gui_state.bg_eval_depth = 1;
+                spawn_new_eval_thread(
+                    game_state.board().clone(),
+                    &mut gui_state.bg_eval_stop_flag,
+                    gui_state.bg_eval_depth,
+                    &mut gui_state.bg_eval_handle,
+                );
+            }
+            game_state.excluded_moves().clear();
         }
     }
 }
@@ -653,11 +693,7 @@ impl GuiState {
             bg_eval_depth: 1,
             bg_eval_best_move: None,
             bg_eval_stop_flag: bg_eval_stop_flag.clone(),
-            bg_eval_handle: spawn_eval_thread(
-                board.clone(),
-                1,
-                bg_eval_stop_flag.clone(),
-            ),
+            bg_eval_handle: spawn_eval_thread(board.clone(), 1, bg_eval_stop_flag.clone()),
         }
     }
 }
