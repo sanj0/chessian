@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::io::{self, Write, BufWriter};
+use std::io::{self, Write};
 use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
 use std::time::Instant;
 
@@ -168,7 +167,7 @@ fn negamax(
             };
             (
                 Some(if eval < -(PIECE_VALUES[2]) {
-                    (MATE_SCORE / 2)
+                    MATE_SCORE / 2
                 } else {
                     -(MATE_SCORE / 2)
                 }),

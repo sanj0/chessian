@@ -25,7 +25,7 @@ struct BitBoardIter {
 // 25 to 40 % faster !!!
 pub fn eval(board: &Board) -> i32 {
     let mut result = 0;
-    let mut is_endgame = board.combined().popcnt() < 20;
+    let is_endgame = board.combined().popcnt() < 20;
 
     let white_pieces = board.color_combined(Color::White);
     let black_pieces = board.color_combined(Color::Black);
@@ -91,7 +91,7 @@ pub fn eval(board: &Board) -> i32 {
 
 pub fn old_eval(board: &Board) -> i32 {
     let mut result = 0;
-    let mut is_endgame = board.combined().popcnt() < 20;
+    let is_endgame = board.combined().popcnt() < 20;
 
     for i in 0..64 {
         let square = unsafe { Square::new(i as u8) };
