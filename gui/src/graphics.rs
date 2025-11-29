@@ -20,22 +20,17 @@ impl Textures {
     pub async fn load(path: &str, sprite_size: f32) -> Self {
         let pieces = load_image(path).await.unwrap();
         let piece_order = [5., 3., 2., 4., 1., 0.];
-        let mut white_pieces = piece_order
-            .into_iter()
-            .map(|x| pieces.sub_image(Rect::new(
+        let mut white_pieces = piece_order.into_iter().map(|x| {
+            pieces.sub_image(Rect::new(
                 x * sprite_size,
                 sprite_size,
                 sprite_size,
                 sprite_size,
-            )));
+            ))
+        });
         let mut black_pieces = piece_order
             .into_iter()
-            .map(|x| pieces.sub_image(Rect::new(
-                x * sprite_size,
-                0.,
-                sprite_size,
-                sprite_size,
-            )));
+            .map(|x| pieces.sub_image(Rect::new(x * sprite_size, 0., sprite_size, sprite_size)));
         Textures {
             white_pawn: white_pieces.next().unwrap(),
             white_knight: white_pieces.next().unwrap(),

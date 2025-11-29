@@ -3,9 +3,9 @@ pub mod eval;
 pub mod gamestate;
 pub mod testsuite;
 
+use chess::*;
 use std::collections::HashMap;
 use std::ops::Deref;
-use chess::*;
 
 #[derive(Clone, Debug)]
 pub struct HistoryBoard {
@@ -17,10 +17,7 @@ impl HistoryBoard {
     pub fn new(board: Board) -> Self {
         let mut history = HashMap::new();
         history.insert(board.get_hash(), 1);
-        Self {
-            board,
-            history,
-        }
+        Self { board, history }
     }
 
     pub fn make_move(&self, m: ChessMove) -> Self {
@@ -34,7 +31,13 @@ impl HistoryBoard {
     }
 
     pub fn status(&self) -> BoardStatus {
-        if self.history.get(&self.board.get_hash()).copied().unwrap_or_default() >= 3 {
+        if self
+            .history
+            .get(&self.board.get_hash())
+            .copied()
+            .unwrap_or_default()
+            >= 3
+        {
             BoardStatus::Stalemate
         } else {
             self.board.status()

@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use chess::*;
 
-use crate::chooser::*;
 use crate::HistoryBoard;
+use crate::chooser::*;
 
 pub struct GameState {
     board: HistoryBoard,
@@ -55,7 +55,13 @@ impl GameState {
     }
 
     pub fn engine_move(&mut self, time_control: TimeControl) -> Option<ChooserResult> {
-        if let Some(result) = best_move(&self.board, time_control, &self.exclude_moves, std::io::stdout(), std::io::sink()) {
+        if let Some(result) = best_move(
+            &self.board,
+            time_control,
+            &self.exclude_moves,
+            std::io::stdout(),
+            std::io::sink(),
+        ) {
             self.make_move(result.best_move);
             self.last_engine_move = Some(result.best_move);
             if let Some(r) = result.response {
@@ -77,7 +83,8 @@ impl GameState {
 
     pub fn undo_move(&mut self) -> bool {
         if let Some((b, m)) = self.undo_queue.pop() {
-            self.redo_queue.push((self.board.clone(), self.last_move.unwrap()));
+            self.redo_queue
+                .push((self.board.clone(), self.last_move.unwrap()));
             self.board = b;
             self.last_move = Some(m);
             self.get_legal_moves();
@@ -89,7 +96,8 @@ impl GameState {
 
     pub fn redo_move(&mut self) -> bool {
         if let Some((b, m)) = self.redo_queue.pop() {
-            self.undo_queue.push((self.board.clone(), self.last_move.unwrap()));
+            self.undo_queue
+                .push((self.board.clone(), self.last_move.unwrap()));
             self.board = b;
             self.last_move = Some(m);
             self.get_legal_moves();

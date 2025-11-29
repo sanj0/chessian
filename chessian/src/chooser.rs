@@ -1,11 +1,14 @@
 use std::io::{self, Write};
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering},
+};
 use std::time::Instant;
 
 use chess::*;
 
-use crate::eval::*;
 use crate::HistoryBoard;
+use crate::eval::*;
 
 pub const MATE_SCORE: i32 = 30_000;
 pub const INF: i32 = MATE_SCORE * 2;
@@ -110,7 +113,13 @@ pub fn best_move(
             break;
         }
         let time = t0.elapsed().as_millis();
-        writeln!(uci_sink, "info depth 2 seldepth {depth} multipv 1 score cp {alpha}  nodes {node_count} nps {:.0} time {time} pv {} {}", node_count as f32 / (time as f32 / 1000.0), curr_best_move.unwrap(), curr_response.unwrap());
+        writeln!(
+            uci_sink,
+            "info depth 2 seldepth {depth} multipv 1 score cp {alpha}  nodes {node_count} nps {:.0} time {time} pv {} {}",
+            node_count as f32 / (time as f32 / 1000.0),
+            curr_best_move.unwrap(),
+            curr_response.unwrap()
+        );
         depth += 1;
         if curr_best_move.is_some() {
             let m = candidates.remove(curr_best_move_index);
@@ -235,17 +244,14 @@ fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32, reached_depth: usize
             if stand_pat > alpha {
                 alpha = stand_pat;
             }
-            let mut moves = MoveGen::new_legal(&board.board).filter(|m| !is_quiet(m, board)).collect::<Vec<_>>();
+            let mut moves = MoveGen::new_legal(&board.board)
+                .filter(|m| !is_quiet(m, board))
+                .collect::<Vec<_>>();
             sort_moves(&mut moves, &board.board);
             let mut reached_depth = reached_depth;
             for m in moves {
                 let after_move = board.make_move(m);
-                let (mut value, depth) = qsearch(
-                    &after_move,
-                    -beta,
-                    -alpha,
-                    reached_depth + 1,
-                );
+                let (mut value, depth) = qsearch(&after_move, -beta, -alpha, reached_depth + 1);
                 value = -value;
                 reached_depth = usize::max(reached_depth, depth);
                 if value >= beta {
@@ -294,10 +300,7 @@ fn sort_moves(moves: &mut [ChessMove], context: &Board) {
 
 impl TimeControl {
     pub fn new(stop_flag: Option<Arc<AtomicBool>>, mode: TCMode) -> Self {
-        Self {
-            stop_flag,
-            mode,
-        }
+        Self { stop_flag, mode }
     }
 
     //pub fn game_time(base: u128, increment: u128, left: u128) -> Self {
@@ -305,7 +308,12 @@ impl TimeControl {
     //}
 
     pub fn should_stop(&self, elapsed: u128, reached_depth: usize) -> bool {
-        if self.stop_flag.as_ref().map(|b| b.load(Ordering::Relaxed)).unwrap_or(false) {
+        if self
+            .stop_flag
+            .as_ref()
+            .map(|b| b.load(Ordering::Relaxed))
+            .unwrap_or(false)
+        {
             true
         } else {
             match self.mode {
