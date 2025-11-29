@@ -1,11 +1,8 @@
 mod graphics;
 
-use std::env::args;
-use std::io::{self, Write, stdin, stdout};
-use std::str::FromStr;
-use std::sync::{mpsc, Arc, atomic::{AtomicBool, AtomicUsize, Ordering}};
+use std::io::{self, Write, stdout};
+use std::sync::{mpsc, Arc, atomic::{AtomicBool, Ordering}};
 use std::thread;
-use std::time::Duration;
 
 use chess::Color as ChessColor;
 use chess::*;
@@ -18,7 +15,6 @@ use gamestate::GameState;
 use graphics::Textures;
 
 use chessian::*;
-use chessian::eval::*;
 use chessian::chooser::*;
 
 pub const FIELD_SIZE: f32 = 100.0;
@@ -94,14 +90,14 @@ async fn main() -> Result<(), String> {
     loop {
         root_ui().window(
             hash!(),
-            Vec2::new(FIELD_SIZE * 8.0 + EVAL_BAR_W as f32, 0.0),
+            Vec2::new(FIELD_SIZE * 8.0 + EVAL_BAR_W, 0.0),
             Vec2::new(UI_WIDTH, FIELD_SIZE * 8.0),
             |ui| {
                 ui.separator();
                 if let Some(alpha) = last_alpha {
                     ui.label(None, &format!("Eval: {}", alpha));
                 } else {
-                    ui.label(None, &format!("Eval: None"));
+                    ui.label(None, &"Eval: None".to_string());
                 }
                 if eval {
                     ui.label(None, &format!("Eval depth: {}", eval_depth));
@@ -120,7 +116,7 @@ async fn main() -> Result<(), String> {
                 if let Some(depth) = last_depth {
                     ui.label(None, &format!("Last depth: {}", depth));
                 } else {
-                    ui.label(None, &format!("Last depth: None"));
+                    ui.label(None, &"Last depth: None".to_string());
                 }
                 if let Some(millis) = last_millis {
                     ui.label(
@@ -128,7 +124,7 @@ async fn main() -> Result<(), String> {
                         &format!("Last search: {:.3}s", millis as f64 / 1_000.0),
                     );
                 } else {
-                    ui.label(None, &format!("Last search: None"));
+                    ui.label(None, &"Last search: None".to_string());
                 }
                 ui.separator();
                 ui.checkbox(UI_ID_CHECKBOX, "Auto respond", &mut auto_respond);
@@ -160,7 +156,7 @@ async fn main() -> Result<(), String> {
                         game_state
                             .excluded_moves()
                             .iter()
-                            .map(|m| format!("{},", m.to_string()))
+                            .map(|m| format!("{},", m))
                             .collect::<String>()
                     ),
                 );
@@ -182,24 +178,21 @@ async fn main() -> Result<(), String> {
             },
         );
 
-        match eval_handle.try_recv() {
-            Ok(Some(result)) => {
-                last_alpha = Some(if game_state.board().side_to_move() == ChessColor::Black {
-                    -result.deep_eval
-                } else {
-                    result.deep_eval
-                });
-                eval_move = Some(result.best_move);
-                if eval {
-                    eval_depth += 1;
-                    spawn_new_eval_thread(game_state.board().clone(), &mut eval_stop_flag, eval_depth, &mut eval_handle);
-                }
-            },
-            _ => (),
+        if let Ok(Some(result)) = eval_handle.try_recv() {
+            last_alpha = Some(if game_state.board().side_to_move() == ChessColor::Black {
+                -result.deep_eval
+            } else {
+                result.deep_eval
+            });
+            eval_move = Some(result.best_move);
+            if eval {
+                eval_depth += 1;
+                spawn_new_eval_thread(game_state.board().clone(), &mut eval_stop_flag, eval_depth, &mut eval_handle);
+            }
         }
 
         if let Some(score) = last_alpha {
-            let mut pawn_score = score as f32 / 100.0;
+            let pawn_score = score as f32 / 100.0;
             let bar_y = FIELD_SIZE * 4.0 + pawn_score * 25.0;
             draw_rectangle(FIELD_SIZE * 8.0, bar_y, EVAL_BAR_W, FIELD_SIZE * 8.0, BLACK);
             draw_rectangle(FIELD_SIZE * 8.0, 0.0, EVAL_BAR_W, bar_y, COLOR_WHITE);
@@ -211,8 +204,8 @@ async fn main() -> Result<(), String> {
         let hovered_square = hovered_square(invert);
         let mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
 
-        for mut y in 0..=7 {
-            for mut x in 0..=7 {
+        for y in 0..=7 {
+            for x in 0..=7 {
                 let square = Square::make_square(
                     Rank::from_index(if invert { y } else { 7 - y }),
                     File::from_index(if invert { 7 - x } else { x }),
@@ -230,15 +223,14 @@ async fn main() -> Result<(), String> {
                     draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_BLUE);
                 }
                 // Draw piece?
-                if draw_pieces {
-                    if let Some((piece, color)) = game_state
+                if draw_pieces
+                    && let Some((piece, color)) = game_state
                         .board()
                         .piece_on(square)
                         .zip(game_state.board().color_on(square))
                     {
                         draw_piece(piece, color, x_pos, y_pos, &piece_sprites);
                     }
-                }
 
                 if draw_square_names {
                     draw_text(
@@ -250,16 +242,15 @@ async fn main() -> Result<(), String> {
                     );
                 }
 
-                if let Some(m) = game_state.last_move() {
-                    if m.get_source() == square || m.get_dest() == square {
+                if let Some(m) = game_state.last_move()
+                    && (m.get_source() == square || m.get_dest() == square) {
                         draw_rectangle_lines(x_pos, y_pos, FIELD_SIZE, FIELD_SIZE, 7.5, COLOR_RED);
                     }
-                }
             }
         }
 
-        if let Some(r) = eval_move {
-            if eval {
+        if let Some(r) = eval_move
+            && eval {
                 let (x0, y0) = square_to_xy(if invert {
                     invert_square(r.get_source())
                 } else {
@@ -279,7 +270,6 @@ async fn main() -> Result<(), String> {
                     COLOR_RED,
                 );
             }
-        }
 
         if let Some(pending_promotion) = pending_promotion_move {
             let dest = pending_promotion.get_dest();
@@ -399,7 +389,7 @@ async fn main() -> Result<(), String> {
         // Process input
         if is_mouse_button_pressed(MouseButton::Left) {
             if matches![
-                hovered_piece(&game_state.board(), invert),
+                hovered_piece(game_state.board(), invert),
                 Some((_, color)) if color == game_state.board().side_to_move()]
             {
                 highlight_moves = game_state.legal_moves_from(hovered_square);
@@ -408,7 +398,7 @@ async fn main() -> Result<(), String> {
                     .iter()
                     .find(|m| m.get_dest() == hovered_square)
                 {
-                    let mut mov = *m;
+                    let mov = *m;
                     if mov.get_promotion().is_some() {
                         pending_promotion_move = Some(mov);
                     } else {
@@ -433,7 +423,7 @@ async fn main() -> Result<(), String> {
             };
             match c {
                 'a' => auto_respond = !auto_respond,
-                'f' => println!("{}", chessian::board_to_fen(&game_state.board())),
+                'f' => println!("{}", chessian::board_to_fen(game_state.board())),
                 'm' => {
                     engine_move_next_frame = true;
                     game_state.excluded_moves().clear();
