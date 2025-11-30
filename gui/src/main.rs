@@ -1,6 +1,6 @@
 mod graphics;
 
-use std::io::{self, Write, stdout};
+use std::io::{self, Write};
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -47,21 +47,36 @@ const UI_ID_CHECKBOX_DP: Id = 3;
 const UI_ID_SLIDER: Id = 4;
 const UI_ID_EVAL: Id = 666;
 
+/// State of the chess gui.
 #[derive(Debug)]
 struct GuiState {
+    /// The alpha rating (in centipawns) of the last move by the computer.
     last_alpha: Option<i32>,
+    /// The depth the computer reached during its last search, sans q-search.
     last_depth: Option<usize>,
+    /// The amount of milliseconds the computer last searched for in total.
     last_millis: Option<u128>,
+    /// Automatically move after the play moved?
     auto_respond: bool,
+    /// Should the engine make a move next frame?
     engine_move_next_frame: bool,
+    /// Draw square names?
     draw_square_names: bool,
+    /// Draw pieces?
     draw_pieces: bool,
+    /// How long the computer should search in total.
     thinking_millis: u128,
+    /// Invert the board?
     invert: bool,
+    /// Evaluate the position in the background?
     bg_eval: bool,
+    /// The current depth of the background evaluation.
     bg_eval_depth: usize,
+    /// The current best move of the background evaluation.
     bg_eval_best_move: Option<ChessMove>,
+    /// The stop flag of the background evaluation.
     bg_eval_stop_flag: Arc<AtomicBool>,
+    /// The handle to the background evaluation thread.
     bg_eval_handle: mpsc::Receiver<Option<ChooserResult>>,
 }
 
@@ -80,21 +95,11 @@ async fn main() -> Result<(), String> {
     let mut pending_promotion_move: Option<ChessMove> = None;
 
     loop {
-        draw_ui(&mut gui_state, &mut game_state);
-        try_recv_bg_eval(&mut gui_state, &mut game_state);
-        draw_eval_bar(&gui_state);
-
         let hovered_square = hovered_square(gui_state.invert);
         let is_mouse_in_board = mouse_position().0 <= FIELD_SIZE * 8.0;
 
-        draw_board(
-            &gui_state,
-            &game_state,
-            &piece_sprites,
-            hovered_square,
-            is_mouse_in_board,
-        );
-        draw_bg_eval_best_move(&gui_state);
+        draw(&mut gui_state, &mut game_state, &piece_sprites, hovered_square, is_mouse_in_board);
+        try_recv_bg_eval(&mut gui_state, &mut game_state);
 
         if let Some(pending_promotion) = pending_promotion_move {
             promotion_menu(
@@ -108,35 +113,13 @@ async fn main() -> Result<(), String> {
         }
 
         if gui_state.engine_move_next_frame {
-            draw_rectangle(
-                0.0,
-                0.0,
-                screen_width(),
-                screen_height(),
-                Color::new(0.0, 0.0, 0.0, 0.75),
-            );
-            draw_text_centered("Engine calculates ...", 35.0, COLOR_BLUE);
-            next_frame().await;
-            if let Some(result) = game_state.engine_move(TimeControl::new(
-                None,
-                TCMode::MoveTime(gui_state.thinking_millis),
-            )) {
-                gui_state.last_alpha = Some(result.deep_eval);
-                gui_state.last_depth = Some(result.reached_depth);
-                gui_state.last_millis = Some(result.millis);
-            }
-            gui_state.engine_move_next_frame = false;
-            if gui_state.bg_eval {
-                gui_state.bg_eval_depth = 1;
-                spawn_new_eval_thread(
-                    game_state.board().clone(),
-                    &mut gui_state.bg_eval_stop_flag,
-                    gui_state.bg_eval_depth,
-                    &mut gui_state.bg_eval_handle,
-                );
-            }
+            engine_move(&mut gui_state, &mut game_state).await;
             clickable_moves.clear();
             continue;
+        }
+
+        if let Some(c) = get_char_pressed() {
+            handle_char_pressed(&mut gui_state, &mut game_state, c, &mut clickable_moves);
         }
 
         if !is_mouse_in_board {
@@ -144,133 +127,33 @@ async fn main() -> Result<(), String> {
             continue;
         }
 
-        // Draw highlighted moves
-        for m in &clickable_moves {
-            let dest = m.get_dest();
-            let (x, y) = square_to_xy(if gui_state.invert {
-                invert_square(dest)
-            } else {
-                dest
-            });
-            draw_circle(
-                x + FIELD_SIZE / 2.,
-                y + FIELD_SIZE / 2.,
-                MOVE_INDICATOR_SIZE,
-                MOVE_INDICATOR_COLOR,
-            );
-        }
+        draw_clickable_moves(&gui_state, &clickable_moves);
 
-        // Process input
         if is_mouse_button_pressed(MouseButton::Left) {
-            if matches![
-                hovered_piece(game_state.board(), gui_state.invert),
-                Some((_, color)) if color == game_state.board().side_to_move()]
-            {
-                clickable_moves = game_state.legal_moves_from(hovered_square);
-            } else {
-                if let Some(m) = clickable_moves
-                    .iter()
-                    .find(|m| m.get_dest() == hovered_square)
-                {
-                    let mov = *m;
-                    if mov.get_promotion().is_some() {
-                        pending_promotion_move = Some(mov);
-                    } else {
-                        game_state.make_move(mov);
-                        if gui_state.bg_eval {
-                            gui_state.bg_eval_depth = 1;
-                            spawn_new_eval_thread(
-                                game_state.board().clone(),
-                                &mut gui_state.bg_eval_stop_flag,
-                                gui_state.bg_eval_depth,
-                                &mut gui_state.bg_eval_handle,
-                            );
-                        }
-                        game_state.excluded_moves().clear();
-                        gui_state.engine_move_next_frame = gui_state.auto_respond;
-                    }
-                }
-                clickable_moves.clear();
-            }
-        }
-
-        if let Some(c) = get_char_pressed() {
-            let control_down = if cfg!(target_os = "macos") {
-                is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper)
-            } else {
-                is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
-            };
-            match c {
-                'a' => gui_state.auto_respond = !gui_state.auto_respond,
-                'f' => println!("{}", chessian::board_to_fen(game_state.board())),
-                'm' => {
-                    gui_state.engine_move_next_frame = true;
-                    game_state.excluded_moves().clear();
-                    clickable_moves.clear();
-                }
-                'd' => {
-                    if let Some(m) = game_state.last_engine_move() {
-                        game_state.excluded_moves().push(m);
-                        game_state.undo_move();
-                        gui_state.engine_move_next_frame = true;
-                    }
-                }
-                'z' if control_down => {
-                    if game_state.undo_move() {
-                        clickable_moves.clear();
-                        if gui_state.bg_eval {
-                            gui_state.bg_eval_depth = 1;
-                            spawn_new_eval_thread(
-                                game_state.board().clone(),
-                                &mut gui_state.bg_eval_stop_flag,
-                                gui_state.bg_eval_depth,
-                                &mut gui_state.bg_eval_handle,
-                            );
-                        }
-                    }
-                }
-                'y' if control_down => {
-                    if game_state.redo_move() {
-                        clickable_moves.clear();
-                        if gui_state.bg_eval {
-                            gui_state.bg_eval_depth = 1;
-                            spawn_new_eval_thread(
-                                game_state.board().clone(),
-                                &mut gui_state.bg_eval_stop_flag,
-                                gui_state.bg_eval_depth,
-                                &mut gui_state.bg_eval_handle,
-                            );
-                        }
-                    }
-                }
-                's' => gui_state.draw_square_names = !gui_state.draw_square_names,
-                'p' => gui_state.draw_pieces = !gui_state.draw_pieces,
-                'i' => gui_state.invert = !gui_state.invert,
-                'r' => {
-                    game_state = GameState::default();
-                }
-                't' => {
-                    let history = game_state.history();
-                    println!("Analyzing game. Will take {} seconds", history.len() * 3);
-                    for (b, m) in history {
-                        let result = chessian::chooser::best_move(
-                            b,
-                            TimeControl::new(None, TCMode::MoveTime(3000)),
-                            &[],
-                            std::io::sink(),
-                            std::io::sink(),
-                        )
-                        .unwrap();
-                        print!("{}", result.deep_eval);
-                        let _ = std::io::stdout().flush();
-                    }
-                }
-                _otherwise => (),
-            }
+            handle_left_click(
+                &mut gui_state,
+                &mut game_state,
+                hovered_square,
+                &mut pending_promotion_move,
+                &mut clickable_moves,
+            );
         }
 
         next_frame().await
     }
+}
+
+fn draw(gui_state: &mut GuiState, game_state: &mut GameState, piece_sprites: &Textures, hovered_square: Square, is_mouse_in_board: bool) {
+        draw_ui(gui_state, game_state);
+        draw_eval_bar(&gui_state);
+        draw_board(
+            &gui_state,
+            &game_state,
+            &piece_sprites,
+            hovered_square,
+            is_mouse_in_board,
+        );
+        draw_bg_eval_best_move(&gui_state);
 }
 
 fn draw_text_centered(text: &str, font_size: f32, color: Color) {
@@ -331,24 +214,6 @@ fn draw_piece(piece: Piece, color: ChessColor, x: f32, y: f32, piece_sprites: &T
     );
 }
 
-fn choose_promotion() -> Piece {
-    loop {
-        print!("Promote to (n = Knight, b = Bishop, r = Rook, q = Queen): ");
-        io::stdout().flush().unwrap();
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input).unwrap();
-
-        match input.trim().to_lowercase().as_str() {
-            "n" => return Piece::Knight,
-            "b" => return Piece::Bishop,
-            "r" => return Piece::Rook,
-            "q" => return Piece::Queen,
-            _ => println!("Invalid input!"),
-        }
-    }
-}
-
 fn spawn_new_eval_thread(
     board: HistoryBoard,
     stop_flag: &mut Arc<AtomicBool>,
@@ -357,7 +222,7 @@ fn spawn_new_eval_thread(
 ) {
     stop_flag.store(true, Ordering::Relaxed);
     // wait for old eval thread to stop
-    rec.recv();
+    let _ = rec.recv();
     *stop_flag = Arc::new(AtomicBool::new(false));
     *rec = spawn_eval_thread(board, eval_depth, stop_flag.clone());
 }
@@ -674,6 +539,152 @@ fn try_recv_bg_eval(gui_state: &mut GuiState, game_state: &mut GameState) {
             );
         }
     }
+}
+
+fn restart_bg_eval(gui_state: &mut GuiState, game_state: &GameState) {
+    gui_state.bg_eval_depth = 1;
+    spawn_new_eval_thread(
+        game_state.board().clone(),
+        &mut gui_state.bg_eval_stop_flag,
+        gui_state.bg_eval_depth,
+        &mut gui_state.bg_eval_handle,
+    );
+}
+
+async fn engine_move(gui_state: &mut GuiState, game_state: &mut GameState) {
+    draw_rectangle(
+        0.0,
+        0.0,
+        screen_width(),
+        screen_height(),
+        Color::new(0.0, 0.0, 0.0, 0.75),
+    );
+    draw_text_centered("Engine calculates ...", 35.0, COLOR_BLUE);
+    next_frame().await;
+    if let Some(result) = game_state.engine_move(TimeControl::new(
+        None,
+        TCMode::MoveTime(gui_state.thinking_millis),
+    )) {
+        gui_state.last_alpha = Some(result.deep_eval);
+        gui_state.last_depth = Some(result.reached_depth);
+        gui_state.last_millis = Some(result.millis);
+    }
+    gui_state.engine_move_next_frame = false;
+    if gui_state.bg_eval {
+        restart_bg_eval(gui_state, game_state);
+    }
+}
+
+fn draw_clickable_moves(gui_state: &GuiState, clickable_moves: &[ChessMove]) {
+    for m in clickable_moves {
+        let dest = m.get_dest();
+        let (x, y) = square_to_xy(if gui_state.invert {
+            invert_square(dest)
+        } else {
+            dest
+        });
+        draw_circle(
+            x + FIELD_SIZE / 2.,
+            y + FIELD_SIZE / 2.,
+            MOVE_INDICATOR_SIZE,
+            MOVE_INDICATOR_COLOR,
+        );
+    }
+}
+
+fn handle_left_click(
+    gui_state: &mut GuiState,
+    game_state: &mut GameState,
+    hovered_square: Square,
+    pending_promotion_move: &mut Option<ChessMove>,
+    clickable_moves: &mut Vec<ChessMove>,
+) {
+    let side_to_move_clicked = hovered_piece(game_state.board(), gui_state.invert)
+        .map(|(_, color)| color == game_state.board().side_to_move())
+        .unwrap_or(false);
+    if side_to_move_clicked {
+        *clickable_moves = game_state.legal_moves_from(hovered_square);
+    } else {
+        if let Some(m) = clickable_moves
+            .iter()
+            .find(|m| m.get_dest() == hovered_square)
+        {
+            let mov = *m;
+            if mov.get_promotion().is_some() {
+                *pending_promotion_move = Some(mov);
+            } else {
+                game_state.make_move(mov);
+                if gui_state.bg_eval {
+                    restart_bg_eval(gui_state, game_state);
+                }
+                game_state.excluded_moves().clear();
+                gui_state.engine_move_next_frame = gui_state.auto_respond;
+            }
+        }
+        clickable_moves.clear();
+    }
+}
+
+fn handle_char_pressed(gui_state: &mut GuiState, game_state: &mut GameState, c: char, clickable_moves: &mut Vec<ChessMove>) {
+    let control_down = if cfg!(target_os = "macos") {
+        is_key_down(KeyCode::LeftSuper) || is_key_down(KeyCode::RightSuper)
+    } else {
+        is_key_down(KeyCode::LeftControl) || is_key_down(KeyCode::RightControl)
+    };
+    match c {
+        'a' => gui_state.auto_respond = !gui_state.auto_respond,
+        'f' => println!("{}", chessian::board_to_fen(game_state.board())),
+        'm' => {
+            gui_state.engine_move_next_frame = true;
+            game_state.excluded_moves().clear();
+            clickable_moves.clear();
+        }
+        'd' => {
+            if let Some(m) = game_state.last_engine_move() {
+                game_state.excluded_moves().push(m);
+                game_state.undo_move();
+                gui_state.engine_move_next_frame = true;
+            }
+        }
+        'z' if control_down => {
+            if game_state.undo_move() {
+                clickable_moves.clear();
+                if gui_state.bg_eval {
+                    restart_bg_eval(gui_state, &game_state);
+                }
+            }
+        }
+        'y' if control_down => {
+            if game_state.redo_move() {
+                clickable_moves.clear();
+                if gui_state.bg_eval {
+                    restart_bg_eval(gui_state, &game_state);
+                }
+            }
+        }
+        's' => gui_state.draw_square_names = !gui_state.draw_square_names,
+        'p' => gui_state.draw_pieces = !gui_state.draw_pieces,
+        'i' => gui_state.invert = !gui_state.invert,
+        'r' => *game_state = GameState::default(),
+        't' => {
+            let history = game_state.history();
+            println!("Analyzing game. Will take {} seconds", history.len() * 3);
+            for (b, _) in history {
+                let result = chessian::chooser::best_move(
+                    b,
+                    TimeControl::new(None, TCMode::MoveTime(3000)),
+                    &[],
+                    std::io::sink(),
+                    std::io::sink(),
+                )
+                    .unwrap();
+                print!("{}", result.deep_eval);
+                let _ = std::io::stdout().flush();
+            }
+        }
+        _otherwise => (),
+    }
+
 }
 
 impl GuiState {
