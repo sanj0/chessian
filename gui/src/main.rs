@@ -1,6 +1,6 @@
 mod graphics;
 
-use std::io::{self, Write};
+use std::io::Write;
 use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
@@ -145,15 +145,15 @@ async fn main() -> Result<(), String> {
 
 fn draw(gui_state: &mut GuiState, game_state: &mut GameState, piece_sprites: &Textures, hovered_square: Square, is_mouse_in_board: bool) {
         draw_ui(gui_state, game_state);
-        draw_eval_bar(&gui_state);
+        draw_eval_bar(gui_state);
         draw_board(
-            &gui_state,
-            &game_state,
-            &piece_sprites,
+            gui_state,
+            game_state,
+            piece_sprites,
             hovered_square,
             is_mouse_in_board,
         );
-        draw_bg_eval_best_move(&gui_state);
+        draw_bg_eval_best_move(gui_state);
 }
 
 fn draw_text_centered(text: &str, font_size: f32, color: Color) {
@@ -258,7 +258,7 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
             if let Some(alpha) = gui_state.last_alpha {
                 ui.label(None, &format!("Eval: {}", alpha));
             } else {
-                ui.label(None, &"Eval: None".to_string());
+                ui.label(None, "Eval: None");
             }
             if gui_state.bg_eval {
                 ui.label(None, &format!("Eval depth: {}", gui_state.bg_eval_depth));
@@ -281,7 +281,7 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
             if let Some(depth) = gui_state.last_depth {
                 ui.label(None, &format!("Last depth: {}", depth));
             } else {
-                ui.label(None, &"Last depth: None".to_string());
+                ui.label(None, "Last depth: None");
             }
             if let Some(millis) = gui_state.last_millis {
                 ui.label(
@@ -289,7 +289,7 @@ fn draw_ui(gui_state: &mut GuiState, game_state: &mut GameState) {
                     &format!("Last search: {:.3}s", millis as f64 / 1_000.0),
                 );
             } else {
-                ui.label(None, &"Last search: None".to_string());
+                ui.label(None, "Last search: None");
             }
             ui.separator();
             ui.checkbox(UI_ID_CHECKBOX, "Auto respond", &mut gui_state.auto_respond);
@@ -390,7 +390,7 @@ fn draw_board(
                     .piece_on(square)
                     .zip(game_state.board().color_on(square))
             {
-                draw_piece(piece, color, x_pos, y_pos, &piece_sprites);
+                draw_piece(piece, color, x_pos, y_pos, piece_sprites);
             }
 
             if gui_state.draw_square_names {
@@ -468,7 +468,7 @@ fn promotion_menu(
             game_state.board().side_to_move(),
             x,
             y,
-            &piece_sprites,
+            piece_sprites,
         );
     }
     if is_mouse_button_pressed(MouseButton::Left) {
@@ -650,7 +650,7 @@ fn handle_char_pressed(gui_state: &mut GuiState, game_state: &mut GameState, c: 
             if game_state.undo_move() {
                 clickable_moves.clear();
                 if gui_state.bg_eval {
-                    restart_bg_eval(gui_state, &game_state);
+                    restart_bg_eval(gui_state, game_state);
                 }
             }
         }
@@ -658,7 +658,7 @@ fn handle_char_pressed(gui_state: &mut GuiState, game_state: &mut GameState, c: 
             if game_state.redo_move() {
                 clickable_moves.clear();
                 if gui_state.bg_eval {
-                    restart_bg_eval(gui_state, &game_state);
+                    restart_bg_eval(gui_state, game_state);
                 }
             }
         }
