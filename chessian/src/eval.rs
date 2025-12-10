@@ -29,7 +29,6 @@ pub const PIECE_VALUES: [i32; 6] = [
 /// The sanction, in centipawns, of having a double pawn.
 pub const DOUBLE_PAWN_SANCTION: i32 = 45;
 
-
 pub fn eval(board: &Board) -> i32 {
     let mut result = 0;
     let is_endgame = board.combined().popcnt() < 20;

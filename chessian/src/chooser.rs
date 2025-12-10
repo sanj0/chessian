@@ -1,10 +1,10 @@
-use std::io::{Write};
+use std::io::Write;
 use std::time::Instant;
 
 use chess::*;
 
-use crate::historyboard::HistoryBoard;
 use crate::eval::*;
+use crate::historyboard::HistoryBoard;
 use crate::timecontrol::*;
 
 pub const MATE_SCORE: i32 = 30_000;
@@ -79,7 +79,7 @@ pub fn best_move(
             break;
         }
         let time = t0.elapsed().as_millis();
-        let _ =  writeln!(
+        let _ = writeln!(
             uci_sink,
             "info depth 2 seldepth {current_depth} multipv 1 score cp {alpha} nodes {node_count} nps {:.0} time {time} pv {} {}",
             node_count as f32 / (time as f32 / 1000.0),
@@ -95,8 +95,15 @@ pub fn best_move(
             break;
         }
     }
-    best_move
-        .map(|m| ChooserResult::new(m, response, best_alpha, current_depth - 1, t0.elapsed().as_millis()))
+    best_move.map(|m| {
+        ChooserResult::new(
+            m,
+            response,
+            best_alpha,
+            current_depth - 1,
+            t0.elapsed().as_millis(),
+        )
+    })
 }
 
 // None if ran out of time
@@ -247,7 +254,6 @@ fn get_move_prio(m: &ChessMove, before: &Board) -> i32 {
 fn sort_moves(moves: &mut [ChessMove], context: &Board) {
     moves.sort_by_key(|m| -get_move_prio(m, context));
 }
-
 
 impl ChooserResult {
     pub fn new(

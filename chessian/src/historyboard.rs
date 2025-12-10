@@ -47,4 +47,3 @@ impl Deref for HistoryBoard {
         &self.board
     }
 }
-
