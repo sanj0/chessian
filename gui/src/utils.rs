@@ -1,4 +1,4 @@
-use chess::{Board, Color, Piece, Square, ALL_RANKS, ALL_FILES};
+use chess::{ALL_FILES, ALL_RANKS, Board, Color, Piece, Square};
 
 pub fn board_to_fen(board: &Board) -> String {
     let mut fen = String::new();

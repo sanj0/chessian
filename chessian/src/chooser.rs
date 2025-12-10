@@ -1,30 +1,14 @@
-use std::io::{self, Write};
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
-};
+use std::io::{Write};
 use std::time::Instant;
 
 use chess::*;
 
 use crate::historyboard::HistoryBoard;
 use crate::eval::*;
+use crate::timecontrol::*;
 
 pub const MATE_SCORE: i32 = 30_000;
 pub const INF: i32 = MATE_SCORE * 2;
-
-#[derive(Clone, Debug)]
-pub struct TimeControl {
-    stop_flag: Option<Arc<AtomicBool>>,
-    mode: TCMode,
-}
-
-#[derive(Clone, Debug)]
-pub enum TCMode {
-    MoveTime(u128),
-    Depth(usize),
-    Infinite,
-}
 
 pub struct ChooserResult {
     pub best_move: ChessMove,
@@ -34,20 +18,14 @@ pub struct ChooserResult {
     pub millis: u128,
 }
 
+/// Most important function of the engine: Choose the best from in the given position.
 pub fn best_move(
     board: &HistoryBoard,
     time_control: TimeControl,
-    exclude_moves: &[ChessMove],
     mut uci_sink: impl Write,
     mut log: impl Write,
 ) -> Option<ChooserResult> {
-    let mut candidates: Vec<_> = MoveGen::new_legal(&board.board)
-        .filter(|m| !exclude_moves.contains(m))
-        .collect();
-    let num_candidates = candidates.len();
-    if num_candidates == 1 {
-        return Some(ChooserResult::new(candidates[0], None, -1, 0, 0));
-    }
+    let mut candidates: Vec<_> = MoveGen::new_legal(&board.board).collect();
     let mut best_move = None;
     let mut best_alpha = -INF;
     let mut response = None;
@@ -55,27 +33,26 @@ pub fn best_move(
     sort_moves(&mut candidates, &board.board);
 
     let t0 = Instant::now();
-    let mut depth = 1;
+    let mut current_depth = 1;
     'outer: loop {
         let mut node_count = 0;
         let mut alpha = -INF;
         let mut curr_best_move = None;
         let mut curr_response = None;
         let mut curr_best_move_index = 0;
-        write!(log, "\ndepth {depth}");
         for (i, m) in candidates.iter().enumerate() {
-            let after_move = board.make_move(*m);
+            let board_after_move = board.make_move(*m);
             let (alpha_opt, response_opt) = negamax(
-                &after_move,
-                depth,
+                &board_after_move,
+                current_depth,
                 -INF,
                 -alpha,
                 &time_control,
                 &t0,
                 &mut node_count,
             );
-            let Some(its_alpha) = alpha_opt.map(|i| -i) else {
-                write!(log, "\nout of time!");
+            let Some(current_move_alpha) = alpha_opt.map(|i| -i) else {
+                let _ = write!(log, "\nout of time!");
                 if alpha > best_alpha && best_move != curr_best_move {
                     best_move = curr_best_move;
                     response = response_opt;
@@ -83,60 +60,43 @@ pub fn best_move(
                 }
                 break 'outer;
             };
-            write!(
-                log,
-                "\r{:.2} % depth {depth}",
-                (i + 1) as f32 / num_candidates as f32 * 100.0
-            );
-            let _ = io::stdout().flush();
-            if its_alpha > alpha {
+            if current_move_alpha > alpha {
                 curr_best_move = Some(*m);
                 curr_response = response_opt;
                 curr_best_move_index = i;
-                alpha = its_alpha;
+                alpha = current_move_alpha;
             }
             if alpha >= MATE_SCORE {
-                writeln!(log, "!!! MATE AT DEPTH {} !!!", depth);
+                let _ = writeln!(log, "!!! MATE AT DEPTH {} !!!", current_depth);
                 best_move = curr_best_move;
                 response = response_opt;
                 best_alpha = alpha;
                 break 'outer;
             }
         }
-        writeln!(
-            log,
-            "\nbest move position: {} / {num_candidates}",
-            curr_best_move_index + 1
-        );
         if alpha <= -MATE_SCORE {
-            writeln!(log, "!!! WE LOSE IN MATE IN {} !!!", depth);
+            let _ = writeln!(log, "!!! WE LOSE IN MATE IN {} !!!", current_depth);
             break;
         }
         let time = t0.elapsed().as_millis();
-        writeln!(
+        let _ =  writeln!(
             uci_sink,
-            "info depth 2 seldepth {depth} multipv 1 score cp {alpha}  nodes {node_count} nps {:.0} time {time} pv {} {}",
+            "info depth 2 seldepth {current_depth} multipv 1 score cp {alpha} nodes {node_count} nps {:.0} time {time} pv {} {}",
             node_count as f32 / (time as f32 / 1000.0),
             curr_best_move.unwrap(),
             curr_response.unwrap()
         );
-        depth += 1;
-        if curr_best_move.is_some() {
-            let m = candidates.remove(curr_best_move_index);
-            candidates.insert(0, m);
-        }
+        current_depth += 1;
+        candidates.swap(0, curr_best_move_index);
         best_move = curr_best_move;
         response = curr_response;
         best_alpha = alpha;
-        if time_control.should_stop(time, depth - 1) {
+        if time_control.should_stop(time, current_depth - 1) {
             break;
         }
     }
-    if let Some(m) = best_move {
-        writeln!(log, "chose {m} at depth {depth}\n");
-    }
     best_move
-        .map(|m| ChooserResult::new(m, response, best_alpha, depth - 1, t0.elapsed().as_millis()))
+        .map(|m| ChooserResult::new(m, response, best_alpha, current_depth - 1, t0.elapsed().as_millis()))
 }
 
 // None if ran out of time
@@ -151,16 +111,8 @@ fn negamax(
 ) -> (Option<i32>, Option<ChessMove>) {
     if depth == 0 {
         *node_count += 1;
-        let (score, qdepth) = qsearch(board, alpha, beta, 0);
+        let score = qsearch(board, alpha, beta);
         return (Some(score), None);
-        //return (
-        //    Some(if board.board.side_to_move() == Color::White {
-        //        eval(&board.board)
-        //    } else {
-        //        -eval(&board.board)
-        //    }),
-        //    None,
-        //);
     }
     // Claim 0 depth because depth stopping only happens in the root search
     if time_control.should_stop(t0.elapsed().as_millis(), 0) {
@@ -217,9 +169,9 @@ fn negamax(
     }
 }
 
-fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32, reached_depth: usize) -> (i32, usize) {
+fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32) -> i32 {
     match board.status() {
-        BoardStatus::Checkmate => (-MATE_SCORE, reached_depth),
+        BoardStatus::Checkmate => -MATE_SCORE,
         BoardStatus::Stalemate => {
             let eval = if board.board.side_to_move() == Color::White {
                 eval(&board.board)
@@ -227,9 +179,9 @@ fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32, reached_depth: usize
                 -eval(&board.board)
             };
             if eval < -(PIECE_VALUES[2]) {
-                ((MATE_SCORE / 2), reached_depth)
+                MATE_SCORE / 2
             } else {
-                (-(MATE_SCORE / 2), reached_depth)
+                -(MATE_SCORE / 2)
             }
         }
         BoardStatus::Ongoing => {
@@ -239,7 +191,7 @@ fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32, reached_depth: usize
                 -eval(&board.board)
             };
             if stand_pat >= beta {
-                return (beta, reached_depth);
+                return beta;
             }
             if stand_pat > alpha {
                 alpha = stand_pat;
@@ -248,20 +200,18 @@ fn qsearch(board: &HistoryBoard, mut alpha: i32, beta: i32, reached_depth: usize
                 .filter(|m| !is_quiet(m, board))
                 .collect::<Vec<_>>();
             sort_moves(&mut moves, &board.board);
-            let mut reached_depth = reached_depth;
             for m in moves {
                 let after_move = board.make_move(m);
-                let (mut value, depth) = qsearch(&after_move, -beta, -alpha, reached_depth + 1);
+                let mut value = qsearch(&after_move, -beta, -alpha);
                 value = -value;
-                reached_depth = usize::max(reached_depth, depth);
                 if value >= beta {
-                    return (beta, reached_depth);
+                    return beta;
                 }
                 if value > alpha {
                     alpha = value;
                 }
             }
-            (alpha, reached_depth)
+            alpha
         }
     }
 }
@@ -295,35 +245,9 @@ fn get_move_prio(m: &ChessMove, before: &Board) -> i32 {
 }
 
 fn sort_moves(moves: &mut [ChessMove], context: &Board) {
-    moves.sort_by(|a, b| get_move_prio(b, context).cmp(&get_move_prio(a, context)));
+    moves.sort_by_key(|m| -get_move_prio(m, context));
 }
 
-impl TimeControl {
-    pub fn new(stop_flag: Option<Arc<AtomicBool>>, mode: TCMode) -> Self {
-        Self { stop_flag, mode }
-    }
-
-    //pub fn game_time(base: u128, increment: u128, left: u128) -> Self {
-    //    Self::MoveTime(u128::min(base / 20 + increment / 2, left))
-    //}
-
-    pub fn should_stop(&self, elapsed: u128, reached_depth: usize) -> bool {
-        if self
-            .stop_flag
-            .as_ref()
-            .map(|b| b.load(Ordering::Relaxed))
-            .unwrap_or(false)
-        {
-            true
-        } else {
-            match self.mode {
-                TCMode::MoveTime(millis) => elapsed >= millis,
-                TCMode::Depth(depth) => reached_depth >= depth,
-                TCMode::Infinite => false,
-            }
-        }
-    }
-}
 
 impl ChooserResult {
     pub fn new(

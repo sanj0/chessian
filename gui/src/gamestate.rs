@@ -2,14 +2,13 @@ use std::str::FromStr;
 
 use chess::*;
 
-use chessian::historyboard::HistoryBoard;
 use chessian::chooser::*;
+use chessian::historyboard::HistoryBoard;
+use chessian::timecontrol::*;
 
 pub struct GameState {
     board: HistoryBoard,
     legal_moves: Vec<ChessMove>,
-    exclude_moves: Vec<ChessMove>,
-    last_engine_move: Option<ChessMove>,
     undo_queue: Vec<(HistoryBoard, ChessMove)>,
     redo_queue: Vec<(HistoryBoard, ChessMove)>,
     last_move: Option<ChessMove>,
@@ -20,8 +19,6 @@ impl GameState {
         Self {
             board: HistoryBoard::new(board),
             legal_moves: MoveGen::new_legal(&board).collect(),
-            exclude_moves: Vec::new(),
-            last_engine_move: None,
             undo_queue: Vec::new(),
             redo_queue: Vec::new(),
             last_move: None,
@@ -58,12 +55,10 @@ impl GameState {
         if let Some(result) = best_move(
             &self.board,
             time_control,
-            &self.exclude_moves,
             std::io::stdout(),
             std::io::sink(),
         ) {
             self.make_move(result.best_move);
-            self.last_engine_move = Some(result.best_move);
             if let Some(r) = result.response {
                 println!("I'm predicting {r}");
             }
@@ -71,14 +66,6 @@ impl GameState {
         } else {
             None
         }
-    }
-
-    pub fn excluded_moves(&mut self) -> &mut Vec<ChessMove> {
-        &mut self.exclude_moves
-    }
-
-    pub fn last_engine_move(&mut self) -> Option<ChessMove> {
-        self.last_engine_move
     }
 
     pub fn undo_move(&mut self) -> bool {
@@ -107,16 +94,8 @@ impl GameState {
         }
     }
 
-    pub fn can_undo(&self) -> bool {
-        !self.undo_queue.is_empty()
-    }
-
     pub fn history(&self) -> &Vec<(HistoryBoard, ChessMove)> {
         &self.undo_queue
-    }
-
-    pub fn can_redo(&self) -> bool {
-        !self.redo_queue.is_empty()
     }
 
     pub fn get_legal_moves(&mut self) {
