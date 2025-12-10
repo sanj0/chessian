@@ -7,7 +7,7 @@ use std::time::Instant;
 
 use chess::*;
 
-use crate::HistoryBoard;
+use crate::historyboard::HistoryBoard;
 use crate::eval::*;
 
 pub const MATE_SCORE: i32 = 30_000;

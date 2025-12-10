@@ -2,8 +2,8 @@ use std::str::FromStr;
 
 use chess::*;
 
-use crate::HistoryBoard;
-use crate::chooser::*;
+use chessian::historyboard::HistoryBoard;
+use chessian::chooser::*;
 
 pub struct GameState {
     board: HistoryBoard,

@@ -1,4 +1,6 @@
+mod gamestate;
 mod graphics;
+mod utils;
 
 use std::io::Write;
 use std::sync::{
@@ -14,12 +16,12 @@ use macroquad::color::Color;
 use macroquad::input::KeyCode;
 use macroquad::prelude::*;
 use macroquad::ui::*;
+use chessian::chooser::*;
+use chessian::*;
 
 use gamestate::GameState;
 use graphics::Textures;
-
-use chessian::chooser::*;
-use chessian::*;
+use utils::board_to_fen;
 
 /// Size (in pixels) of the chess squares
 pub const FIELD_SIZE: f32 = 100.0;
@@ -633,7 +635,7 @@ fn handle_char_pressed(gui_state: &mut GuiState, game_state: &mut GameState, c: 
     };
     match c {
         'a' => gui_state.auto_respond = !gui_state.auto_respond,
-        'f' => println!("{}", chessian::board_to_fen(game_state.board())),
+        'f' => println!("{}", board_to_fen(game_state.board())),
         'm' => {
             gui_state.engine_move_next_frame = true;
             game_state.excluded_moves().clear();
