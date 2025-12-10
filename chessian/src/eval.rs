@@ -1,12 +1,22 @@
 use chess::*;
 
+use crate::bbiter::BitBoardIter;
+
+/// Value of a pawn in centipawns
 pub const PAWN_VALUE: i32 = 100;
+/// Value of a knight in centipawns
 pub const KNIGHT_VALUE: i32 = 320;
+/// Value of a bishop in centipawns
 pub const BISHOP_VALUE: i32 = 333;
+/// Value of a rook in centipawns
 pub const ROOK_VALUE: i32 = 500;
+/// Value of a queen in centipawns
 pub const QUEEN_VALUE: i32 = 900;
+/// Value of a king in centipawns
 pub const KING_VALUE: i32 = 20000;
 
+/// Array of the piece values in centipawns in the canonical order pawn, knight, bishop, rook,
+/// queen, king.
 pub const PIECE_VALUES: [i32; 6] = [
     PAWN_VALUE,
     KNIGHT_VALUE,
@@ -16,13 +26,10 @@ pub const PIECE_VALUES: [i32; 6] = [
     KING_VALUE,
 ];
 
+/// The sanction, in centipawns, of having a double pawn.
 pub const DOUBLE_PAWN_SANCTION: i32 = 45;
 
-struct BitBoardIter {
-    bb: BitBoard,
-}
 
-// 25 to 40 % faster !!!
 pub fn eval(board: &Board) -> i32 {
     let mut result = 0;
     let is_endgame = board.combined().popcnt() < 20;
@@ -36,6 +43,7 @@ pub fn eval(board: &Board) -> i32 {
     let queens = board.pieces(Piece::Queen);
     let kings = board.pieces(Piece::King);
 
+    /// Adds or subtracts the values for the given piece type from the tally.
     macro_rules! piece_values {
         ($op:tt, $bb_col:expr, $bb_pieces:expr, $color_index:literal, $piece_index:literal) => {
             for i in BitBoardIter::new($bb_col & $bb_pieces) {
@@ -91,72 +99,7 @@ pub fn eval(board: &Board) -> i32 {
     result
 }
 
-pub fn old_eval(board: &Board) -> i32 {
-    let mut result = 0;
-    let is_endgame = board.combined().popcnt() < 20;
-
-    for i in 0..64 {
-        let square = unsafe { Square::new(i as u8) };
-        let Some((piece, color)) = board.piece_on(square).zip(board.color_on(square)) else {
-            continue;
-        };
-        if color == Color::White {
-            result += SQUARE_SCORES[color.to_index()][piece.to_index()][i]
-                + PIECE_VALUES[piece.to_index()];
-        } else {
-            result -= SQUARE_SCORES[color.to_index()][piece.to_index()][i]
-                + PIECE_VALUES[piece.to_index()];
-        }
-        if piece == Piece::Pawn && is_endgame {
-            result += ENDGAME_PAWN_SCORES[color.to_index()][i];
-        }
-    }
-
-    // sanction double pawns
-    let pawns = board.pieces(Piece::Pawn);
-    let white_pawns = board.color_combined(Color::White) & pawns;
-    let black_pawns = board.color_combined(Color::Black) & pawns;
-
-    for file in ALL_FILES {
-        let file_bb = get_file(file);
-        result -= ((white_pawns & file_bb).popcnt() as i32 - 1) * DOUBLE_PAWN_SANCTION;
-        result += ((black_pawns & file_bb).popcnt() as i32 - 1) * DOUBLE_PAWN_SANCTION;
-    }
-
-    result
-}
-
-pub fn eval_material(board: &Board) -> i32 {
-    let mut result = 0;
-
-    let white_pieces = board.color_combined(Color::White);
-    let black_pieces = board.color_combined(Color::Black);
-    let pawns = board.pieces(Piece::Pawn);
-    let knights = board.pieces(Piece::Knight);
-    let bishops = board.pieces(Piece::Bishop);
-    let rooks = board.pieces(Piece::Rook);
-    let queens = board.pieces(Piece::Queen);
-    let kings = board.pieces(Piece::King);
-
-    result += ((pawns & white_pieces).0.count_ones() as i32
-        - (pawns & black_pieces).0.count_ones() as i32)
-        * PAWN_VALUE;
-    result += ((knights & white_pieces).0.count_ones() as i32
-        - (knights & black_pieces).0.count_ones() as i32)
-        * KNIGHT_VALUE;
-    result += ((bishops & white_pieces).0.count_ones() as i32
-        - (bishops & black_pieces).0.count_ones() as i32)
-        * BISHOP_VALUE;
-    result += ((rooks & white_pieces).0.count_ones() as i32
-        - (rooks & black_pieces).0.count_ones() as i32)
-        * ROOK_VALUE;
-    result += ((queens & white_pieces).0.count_ones() as i32
-        - (queens & black_pieces).0.count_ones() as i32)
-        * QUEEN_VALUE;
-
-    result
-}
-
+/// Piece-square-value table.
 #[rustfmt::skip]
 pub const SQUARE_SCORES: [[[i32; 64]; 6]; 2] = [
     [
@@ -263,22 +206,3 @@ pub const ENDGAME_KING_SCORES: [[i32; 64]; 2] = [
         -20, -30, -40, -50,
     ],
 ];
-
-impl BitBoardIter {
-    pub fn new(bb: BitBoard) -> Self {
-        Self { bb }
-    }
-}
-
-impl Iterator for BitBoardIter {
-    type Item = usize;
-    fn next(&mut self) -> Option<usize> {
-        if self.bb.0 == 0 {
-            None
-        } else {
-            let index = self.bb.0.trailing_zeros() as usize;
-            self.bb.0 &= self.bb.0 - 1;
-            Some(index)
-        }
-    }
-}

@@ -1,6 +1,7 @@
 use chess::{Color as ChessColor, Piece};
 use macroquad::prelude::*;
 
+/// Stores textures for all pieces of all colors for a chess game.
 pub struct Textures {
     white_pawn: Image,
     white_knight: Image,
@@ -17,6 +18,9 @@ pub struct Textures {
 }
 
 impl Textures {
+    /// Loads the textures from the given file, which has to contain images of
+    /// the given square size in the order: king, queen, bishop, knight, rook, pawn; black first,
+    /// then white below, no paddings.
     pub async fn load(path: &str, sprite_size: f32) -> Self {
         let pieces = load_image(path).await.unwrap();
         let piece_order = [5., 3., 2., 4., 1., 0.];
@@ -47,6 +51,7 @@ impl Textures {
         }
     }
 
+    /// Gets the texture for the given piece in the given color.
     pub fn get_piece(&self, (piece, color): (Piece, ChessColor)) -> &Image {
         match (piece, color) {
             (Piece::Pawn, ChessColor::White) => &self.white_pawn,
