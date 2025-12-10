@@ -30,7 +30,6 @@ $ cargo run --release
         - `a` -> toggle auto response by computer
         - `f` -> print current FEN to stdout
         - `m` -> make the engine move
-        - `d` -> exclude the last engine move from the next search
         - `ctrl+z` -> undo the last move
         - `ctrl+y` -> redo the last move
         - `s` -> toggle square names
